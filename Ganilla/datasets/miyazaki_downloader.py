@@ -41,8 +41,8 @@ def main():
     img_count = 0
     downloaded_img_count = 0
 
-    for _ in xrange(number_of_scrolls):
-        for __ in xrange(10):
+    for _ in range(number_of_scrolls):
+        for __ in range(10):
             # multiple scrolls needed to show all 400 images
             driver.execute_script("window.scrollBy(0, 1000000)")
             randdelay(1, 3)
@@ -51,17 +51,17 @@ def main():
         try:
             driver.find_element_by_xpath("//input[@id='smb']").click()
         except Exception as e:
-            print "Less images found:", e
+            print("Less images found:", e)
             break
 
     # imges = driver.find_elements_by_xpath('//div[@class="rg_meta"]') # not working anymore
     imges = driver.find_elements_by_xpath('//div[contains(@class,"rg_meta")]')
-    print "Total images:", len(imges), "\n"
+    print("Total images:", len(imges), "\n")
     for img in imges:
         img_count += 1
         img_url = json.loads(img.get_attribute('innerHTML'))["ou"]
         img_type = json.loads(img.get_attribute('innerHTML'))["ity"]
-        print "Downloading image", img_count, ": ", img_url
+        print("Downloading image", img_count, ": ", img_url)
         try:
             # Save the window opener (current window)
             main_window = driver.current_window_handle
@@ -75,9 +75,9 @@ def main():
             delay = 10  # seconds
             try:
                 img = WebDriverWait(driver, delay).until(EC.presence_of_element_located((By.TAG_NAME, 'img')))
-                print "Page is ready!"
+                print("Page is ready!")
             except TimeoutException:
-                print "Loading took too much time!"
+                print("Loading took too much time!")
 
             # img = driver.find_element_by_tag_name('img')
             randdelay(2, 4) # wait some to get ss. eger cok fazla siyah resim olursa bunu arttirmaniz lazim
@@ -95,13 +95,13 @@ def main():
             windows = driver.window_handles
             # get back to main window!!!
             driver.switch_to.window(windows[0])
-            print "Download failed:", e
+            print("Download failed:", e)
         finally:
             print
         if downloaded_img_count >= num_requested:
             break
 
-    print "Total downloaded: ", downloaded_img_count, "/", img_count
+    print("Total downloaded: ", downloaded_img_count, "/", img_count)
     driver.quit()
 
 
