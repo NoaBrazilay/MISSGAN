@@ -86,7 +86,7 @@ def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, in
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=9)
     elif netG == 'resnet_6blocks':
         net = ResnetGenerator(input_nc, output_nc, ngf, norm_layer=norm_layer, use_dropout=use_dropout, n_blocks=6)
-    elif netG == 'resnet_fpn':
+    elif netG == 'resnet_fpn': # NOA from here you should take the generator
         # Create the model
         if depth == 18:
             net = resnet18(input_nc, output_nc, ngf, fpn_weights, use_dropout=use_dropout, pretrained=False)
