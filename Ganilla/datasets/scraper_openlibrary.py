@@ -48,8 +48,8 @@ class OpenLibHelper(object):
         # wait up to 10 seconds for the elements to become available
         randdelay(9, 12)
 
-        for i in range(0,2):
-            if i==1:
+        for i_p in range(0,2):
+            if i_p==1:
                 two_button = self.browser.find_element_by_link_text('2')
                 two_button.click()
                 randdelay(9, 11)
@@ -70,14 +70,14 @@ class OpenLibHelper(object):
                     # borrow_button = element.find_element_by_xpath("//div[@class='searchResultItemCTA']//div[@class='searchResultItemCTA-lending']")
                     borrow_button_first = element.find_element_by_tag_name('a')
                     borrow_button_first.send_keys(Keys.CONTROL + Keys.RETURN)
-                    randdelay(5, 7) # wait for new tab to load
+                    randdelay(15, 17) # wait for new tab to load
 
 
                     # Get windows list and put focus on new window (which is on the 1st index in the list)
                     windows = self.browser.window_handles
                     self.browser.switch_to.window(windows[1])
                     # do whatever you have to do on this page, we will just got to sleep for now
-                    randdelay(5, 10)
+                    randdelay(7, 10)
 
 
                     title = self.browser.find_element_by_xpath(
@@ -101,16 +101,24 @@ class OpenLibHelper(object):
                     try:
                         check_button_second = self.browser.find_element_by_link_text('Check Availability')
                         check_button_second.click()
-                        randdelay(10, 13)
+                        randdelay(7, 12)
                         borrow_button_second = self.browser.find_element_by_link_text('1 Hour Borrow')
                     except:
                         try:
-                            borrow_button_second = self.browser.find_element_by_link_text('Borrow')
+                            check_button_second = self.browser.find_element_by_link_text('Checked Out')
+                            title_button_second = self.browser.find_element_by_link_text(title)
+                            title_button_second.click()
+                            randdelay(7, 12)
+                            borrow_button_second = self.browser.find_element_by_link_text('1 Hour Borrow')
                         except:
-                            # try:
-                            borrow_button_second = self.browser.find_element_by_link_text('Read')
-                            # except:
-                            #     continue # no loans available so move to the next book.
+
+                            try:
+                                borrow_button_second = self.browser.find_element_by_link_text('Borrow')
+                            except:
+                                # try:
+                                borrow_button_second = self.browser.find_element_by_link_text('Read')
+                                # except:
+                                #     continue # no loans available so move to the next book.
 
                     borrow_button_second.click()
                     randdelay(20, 23)

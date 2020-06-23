@@ -646,6 +646,7 @@ class ResNet(nn.Module):
         self.tanh = nn.Tanh()
 
         if block == BasicBlock_orj:
+            # layers = [2,2,2,2]
             # residuals
             self.layer1 = self._make_layer(block, 64, layers[0])
             self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
@@ -664,6 +665,7 @@ class ResNet(nn.Module):
             self.layer3 = self._make_layer_ganilla(block, 128, layers[2], use_dropout, stride=2)
             self.layer4 = self._make_layer_ganilla(block, 256, layers[3], use_dropout, stride=2)
 
+            # for the skip connections
             fpn_sizes = [self.layer1[layers[0] - 1].conv2.out_channels,
                          self.layer2[layers[1] - 1].conv2.out_channels,
                          self.layer3[layers[2] - 1].conv2.out_channels,

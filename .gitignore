@@ -9,6 +9,7 @@ MUNIT/src/*jpg
 MUNIT/notebooks/.ipynb_checkpoints/*
 MUNIT/exps/
 MUNIT/src/yaml_generator.py
+Ganilla/.idea/
 *.tar.gz
 *ipynb
 *.zip
