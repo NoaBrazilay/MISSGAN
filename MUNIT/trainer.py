@@ -2,7 +2,7 @@
 Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from networks import AdaINGen, MsImageDis, VAEGen
+from networks import AdaINGen, AdaINGanilla, MsImageDis, VAEGen
 from utils import weights_init, get_model_list, vgg_preprocess, load_vgg16, get_scheduler
 from torch.autograd import Variable
 import torch
@@ -14,8 +14,12 @@ class MUNIT_Trainer(nn.Module):
         super(MUNIT_Trainer, self).__init__()
         lr = hyperparameters['lr']
         # Initiate the networks
-        self.gen_a = AdaINGen(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a
-        self.gen_b = AdaINGen(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b
+        if hyperparameters['gen']['ganilla_gen']== False:
+            self.gen_a = AdaINGen(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a
+            self.gen_b = AdaINGen(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b
+        else:
+            self.gen_a = AdaINGanilla(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a with ganilla architecture
+            self.gen_b = AdaINGanilla(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b with ganilla architecture
         self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'])  # discriminator for domain a
         self.dis_b = MsImageDis(hyperparameters['input_dim_b'], hyperparameters['dis'])  # discriminator for domain b
         self.instancenorm = nn.InstanceNorm2d(512, affine=False)

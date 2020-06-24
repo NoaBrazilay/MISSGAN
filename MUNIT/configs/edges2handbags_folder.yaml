@@ -30,11 +30,13 @@ vgg_w: 0                      # weight of domain-invariant perceptual loss
 gen:
   dim: 64                     # number of filters in the bottommost layer
   mlp_dim: 256                # number of filters in MLP
+  mlp_n_blk: 3                # number of Linear blocks in MLP
   style_dim: 8                # length of style code
   activ: relu                 # activation function [relu/lrelu/prelu/selu/tanh]
   n_downsample: 2             # number of downsampling layers in content encoder
   n_res: 4                    # number of residual blocks in content encoder/decoder
   pad_type: reflect           # padding type [zero/reflect]
+  ganilla_gen: False          # whether to use ganilla generator
 dis:
   dim: 64                     # number of filters in the bottommost layer
   norm: none                  # normalization layer [none/bn/in/ln]

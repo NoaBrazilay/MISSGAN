@@ -14,6 +14,8 @@ except ImportError: # will be 3.x series
 ##################################################################################
 # Discriminator
 ##################################################################################
+class UnetDis(nn.Module):
+    def __init__(self, input_dim, params):
 
 class MsImageDis(nn.Module):
     # Multi-scale discriminator architecture
@@ -97,7 +99,7 @@ class AdaINGen(nn.Module):
         activ = params['activ']
         pad_type = params['pad_type']
         mlp_dim = params['mlp_dim']
-
+        mpl_n_blk = params['mlp_n_blk']
         # style encoder
         self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
 
@@ -106,7 +108,7 @@ class AdaINGen(nn.Module):
         self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
-        self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
+        self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, mpl_n_blk, norm='none', activ=activ)
 
     def forward(self, images):
         # reconstruct an image
@@ -146,6 +148,78 @@ class AdaINGen(nn.Module):
                 num_adain_params += 2*m.num_features
         return num_adain_params
 
+class AdaINGanilla(nn.Module):
+    # ------------  ADAIN WITH GANILLA GENRATOR  ------------ #
+    # AdaIN Ganilla Generator auto-encoder architecture
+    # Generator architector taken from:
+    # https://github.com/giddyyupp/ganilla
+    # ------------------------------------------------------- #
+
+    def __init__(self, input_dim, params):
+        super(AdaINGanilla, self).__init__()
+        dim               = params['dim']
+        style_dim         = params['style_dim']
+        n_downsample      = params['n_downsample']
+        n_res             = params['n_res']
+        activ             = params['activ']
+        pad_type          = params['pad_type']
+        mlp_dim           = params['mlp_dim']
+        ganilla_ngf       = params['ganilla_ngf']
+        ganilla_block_nf  = params['ganilla_block_nf']
+        ganilla_layer_nb  = params['ganilla_layer_nb']
+        use_dropout       = params['use_dropout']
+
+        # Ganilla Style Encoder
+        self.enc_style = GanillaStyleEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
+                                             use_dropout, norm = 'in', pad_type =pad_type)
+
+        # Ganilla Content Encoder
+        self.enc_content = GanillaContentEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
+                                          use_dropout, norm = 'in', pad_type =pad_type)
+
+        self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+
+        # MLP to generate AdaIN parameters
+        self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
+                    # input_dim, output_dim, dim, n_blk, norm = 'none', activ = 'relu'
+
+    def forward(self, images):
+        # reconstruct an image
+        content, style_fake = self.encode(images)
+        images_recon = self.decode(content, style_fake)
+        return images_recon
+
+    def encode(self, images):
+        # encode an image to its content and style codes
+        style_fake = self.enc_style(images)
+        content = self.enc_content(images)
+        return content, style_fake
+
+    def decode(self, content, style):
+        # decode content and style codes to an image
+        adain_params = self.mlp(style)
+        self.assign_adain_params(adain_params, self.dec)
+        images = self.dec(content)
+        return images
+
+    def assign_adain_params(self, adain_params, model):
+        # assign the adain_params to the AdaIN layers in model
+        for m in model.modules():
+            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
+                mean = adain_params[:, :m.num_features]
+                std = adain_params[:, m.num_features:2*m.num_features]
+                m.bias = mean.contiguous().view(-1)
+                m.weight = std.contiguous().view(-1)
+                if adain_params.size(1) > 2*m.num_features:
+                    adain_params = adain_params[:, 2*m.num_features:]
+
+    def get_num_adain_params(self, model):
+        # return the number of AdaIN parameters needed by the model
+        num_adain_params = 0
+        for m in model.modules():
+            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
+                num_adain_params += 2*m.num_features
+        return num_adain_params
 
 class VAEGen(nn.Module):
     # VAE architecture
@@ -203,10 +277,79 @@ class StyleEncoder(nn.Module):
     def forward(self, x):
         return self.model(x)
 
+
+class GanillaStyleEncoder(nn.Module):
+    def __init__(self, input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb, use_dropout, norm, pad_type):
+        super(GanillaStyleEncoder, self).__init__()
+
+        self.layer0 = FirstBlock_Ganilla(input_dim, ganilla_ngf, norm=norm, pad_type=pad_type)
+        # residuals
+        self.layer1 = self._make_layer(BasicBlock_Ganilla, ganilla_ngf, ganilla_block_nf[0], ganilla_layer_nb[0],
+                                       use_dropout, stride=1)
+        self.layer2 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[0], ganilla_block_nf[1],
+                                       ganilla_layer_nb[1], use_dropout, stride=2)
+        self.layer3 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[1], ganilla_block_nf[2],
+                                       ganilla_layer_nb[2], use_dropout, stride=2)
+        self.layer4 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[2], ganilla_block_nf[3],
+                                       ganilla_layer_nb[3], use_dropout, stride=2)
+
+        self.pool_layer = nn.AdaptiveAvgPool2d(1) # global average pooling
+        self.fc_style   = nn.Conv2d(ganilla_block_nf[3], style_dim, 1, 1, 0)
+
+
+    def _make_layer_ganilla(self, block, inplanes, planes, blocks, use_dropout, stride=1):
+        strides = [stride] + [1] * (blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(inplanes, planes, use_dropout, stride))
+            self.inplanes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        # Ganilla Encoder
+        x = self.layer0(x)
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+
+        # Global Pooling & FC -> Style Code
+        x = self.pool_layer(x4)
+        x = self.fc_style(x)
+        out = x
+        return out
+
+class GanillaContentEncoder(nn.Module):
+    def __init__(self, input_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb, use_dropout, norm, pad_type):
+        super(GanillaContentEncoder, self).__init__()
+
+        self.layer0 = FirstBlock_Ganilla(input_dim, ganilla_ngf, norm=norm, pad_type=pad_type)
+        # residuals
+        self.layer1 = self._make_layer(BasicBlock_Ganilla, ganilla_ngf, ganilla_block_nf[0], ganilla_layer_nb[0],
+                                       use_dropout, stride=1)
+        self.layer2 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[0], ganilla_block_nf[1],
+                                       ganilla_layer_nb[1], use_dropout, stride=2)
+        self.layer3 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[1], ganilla_block_nf[2],
+                                       ganilla_layer_nb[2], use_dropout, stride=2)
+        self.layer4 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[2], ganilla_block_nf[3],
+                                       ganilla_layer_nb[3], use_dropout, stride=2)
+
+    def forward(self, x):
+        # Ganilla Encoder
+        x = self.layer0(x)
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+
+        out = x4
+        return out, x1, x2, x3, x4
+
 class ContentEncoder(nn.Module):
     def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type):
         super(ContentEncoder, self).__init__()
         self.model = []
+        # Conv2dBlock parameters- input_dim, output_dim, kernel_size, stride, padding = 0, norm = 'none', activation = 'relu', pad_type = 'zero')
         self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type=pad_type)]
         # downsampling blocks
         for i in range(n_downsample):
@@ -219,6 +362,10 @@ class ContentEncoder(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+class GanillaDecoder(nn.Module):
+    def __init__(self):
+        super(GanillaDecoder, self).__init__()
+        #TODO continue NOA
 
 class Decoder(nn.Module):
     def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
@@ -285,6 +432,133 @@ class ResBlock(nn.Module):
         out += residual
         return out
 
+class BasicBlock_Ganilla(nn.Module):
+
+    # inputs should be input_dim, output_dim, kernel_size, stride, padding = 0, norm = 'none', activation = 'relu', pad_type = 'zero'
+    def __init__(self, input_dim, output_dim, use_dropout, kernel_size=3, stride=1, padding = 1, norm = 'none', pad_type='reflect'):
+        super(BasicBlock_Ganilla, self).__init__()
+        self.expansion = 1
+
+        # initialize padding
+        if pad_type == 'reflect':
+            # Pads the input tensor using the reflection of the input boundary
+            self.pad = nn.ReflectionPad2d(padding)
+        elif pad_type == 'replicate':
+            self.pad = nn.ReplicationPad2d(padding)
+        elif pad_type == 'zero':
+            self.pad = nn.ZeroPad2d(padding)
+        else:
+            assert 0, "Unsupported padding type: {}".format(pad_type)
+
+        # initialize normalization
+        norm_dim = output_dim
+        if norm == 'bn':
+            self.norm = nn.BatchNorm2d(norm_dim)
+        elif norm == 'in':
+            # self.norm = nn.InstanceNorm2d(norm_dim, track_running_stats=True)
+            self.norm = nn.InstanceNorm2d(norm_dim)
+        elif norm == 'ln':
+            self.norm = LayerNorm(norm_dim)
+        elif norm == 'adain':
+            self.norm = AdaptiveInstanceNorm2d(norm_dim)
+        elif norm == 'none' or norm == 'sn':
+            self.norm = None
+        else:
+            assert 0, "Unsupported normalization: {}".format(norm)
+
+        self.rp1    = self.pad
+        self.conv1  = nn.Conv2d(input_dim, output_dim, kernel_size=kernel_size, stride=stride, padding=0, bias=False)
+        self.bn1    = self.norm
+        self.use_dropout = use_dropout
+        if use_dropout:
+            self.dropout = nn.Dropout(0.5)
+        self.rp2    = self.pad
+        self.conv2  = nn.Conv2d(output_dim, output_dim, kernel_size=kernel_size, stride=1, padding=0, bias=False)
+        self.bn2    = self.norm
+        self.out_planes = output_dim
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or input_dim != self.expansion * output_dim:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(input_dim, self.expansion * output_dim, kernel_size=1, stride=stride, bias=False),
+                self.norm(self.expansion * output_dim)
+            )
+
+            self.final_conv = nn.Sequential(
+                self.pad,
+                nn.Conv2d(self.expansion * output_dim * 2, self.expansion * output_dim, kernel_size=3, stride=1,
+                          padding=0, bias=False),
+                nn.InstanceNorm2d(self.expansion * output_dim)
+            )
+        else:
+            self.final_conv = nn.Sequential(
+                nn.ReflectionPad2d(1),
+                nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, stride=1, padding=0, bias=False),
+                nn.InstanceNorm2d(output_dim)
+            )
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(self.rp1(x))))
+        if self.use_dropout:
+            out = self.dropout(out)
+        out = self.bn2(self.conv2(self.rp2(out)))
+        inputt = self.shortcut(x)
+        catted = torch.cat((out, inputt), 1)
+        out = self.final_conv(catted)
+        out = F.relu(out)
+        return out
+
+
+class FirstBlock_Ganilla(nn.Module):
+
+    # input_dim = input_nc, output_dim = ngf (number generator filters in the first layer)
+    def __init__(self, input_dim, output_dim, padding=1, norm='none', pad_type='reflect'):
+        super(BasicBlock_Ganilla, self).__init__()
+        self.expansion = 1
+
+        # initialize padding
+        if pad_type == 'reflect':
+            # Pads the input tensor using the reflection of the input boundary
+            self.pad = nn.ReflectionPad2d()
+        elif pad_type == 'replicate':
+            self.pad = nn.ReplicationPad2d()
+        elif pad_type == 'zero':
+            self.pad = nn.ZeroPad2d()
+        else:
+            assert 0, "Unsupported padding type: {}".format(pad_type)
+
+        # initialize normalization
+        norm_dim = output_dim
+        if norm == 'bn':
+            self.norm = nn.BatchNorm2d(norm_dim)
+        elif norm == 'in':
+            # self.norm = nn.InstanceNorm2d(norm_dim, track_running_stats=True)
+            self.norm = nn.InstanceNorm2d(norm_dim)
+        elif norm == 'ln':
+            self.norm = LayerNorm(norm_dim)
+        elif norm == 'adain':
+            self.norm = AdaptiveInstanceNorm2d(norm_dim)
+        elif norm == 'none' or norm == 'sn':
+            self.norm = None
+        else:
+            assert 0, "Unsupported normalization: {}".format(norm)
+
+        self.pad1    = self.pad(input_dim)
+        self.conv1   = nn.Conv2d(input_dim, output_dim, kernel_size=7, stride=1, padding=0, bias=True)
+        self.in1     = nn.InstanceNorm2d(output_dim)
+        self.relu    = nn.ReLU(inplace=True)
+        self.pad2    = self.pad(padding)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
+
+    def forward(self, x):
+        x = self.pad1(x)
+        x = self.conv1(x)
+        x = self.in1(x)
+        x = self.relu(x)
+        x = self.pad2(x)
+        out = self.maxpool(x)
+        return out
+
 class Conv2dBlock(nn.Module):
     def __init__(self, input_dim ,output_dim, kernel_size, stride,
                  padding=0, norm='none', activation='relu', pad_type='zero'):
@@ -345,6 +619,7 @@ class Conv2dBlock(nn.Module):
         if self.activation:
             x = self.activation(x)
         return x
+
 
 class LinearBlock(nn.Module):
     def __init__(self, input_dim, output_dim, norm='none', activation='relu'):
