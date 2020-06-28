@@ -2,7 +2,7 @@
 Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
-from networks import AdaINGen, AdaINGanilla, MsImageDis, VAEGen
+from networks import AdaINGen, AdaINGanilla, MsImageDis, VAEGen, PatchDis
 from utils import weights_init, get_model_list, vgg_preprocess, load_vgg16, get_scheduler
 from torch.autograd import Variable
 import torch
@@ -14,14 +14,19 @@ class MUNIT_Trainer(nn.Module):
         super(MUNIT_Trainer, self).__init__()
         lr = hyperparameters['lr']
         # Initiate the networks
-        if hyperparameters['gen']['ganilla_gen']== False:
+        self.is_ganilla_gen = hyperparameters['gen']['ganilla_gen']
+        if self.is_ganilla_gen == False:
             self.gen_a = AdaINGen(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a
             self.gen_b = AdaINGen(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b
         else:
             self.gen_a = AdaINGanilla(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a with ganilla architecture
             self.gen_b = AdaINGanilla(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b with ganilla architecture
-        self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'])  # discriminator for domain a
-        self.dis_b = MsImageDis(hyperparameters['input_dim_b'], hyperparameters['dis'])  # discriminator for domain b
+        if hyperparameters['dis']['dis_type'] == 'patch':
+            self.dis_a = PatchDis(hyperparameters['input_dim_a'], hyperparameters['dis'])
+            self.dis_b = PatchDis(hyperparameters['input_dim_b'], hyperparameters['dis'])
+        else:
+            self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'])  # discriminator for domain a
+            self.dis_b = MsImageDis(hyperparameters['input_dim_b'], hyperparameters['dis'])  # discriminator for domain b
         self.instancenorm = nn.InstanceNorm2d(512, affine=False)
         self.style_dim = hyperparameters['gen']['style_dim']
 
@@ -63,6 +68,9 @@ class MUNIT_Trainer(nn.Module):
         s_b = Variable(self.s_b)
         c_a, s_a_fake = self.gen_a.encode(x_a)
         c_b, s_b_fake = self.gen_b.encode(x_b)
+        if self.is_ganilla_gen:
+            c_a = c_a[-1]
+            c_b = c_b[-1]
         x_ba = self.gen_a.decode(c_b, s_a)
         x_ab = self.gen_b.decode(c_a, s_b)
         self.train()
@@ -75,6 +83,9 @@ class MUNIT_Trainer(nn.Module):
         # encode
         c_a, s_a_prime = self.gen_a.encode(x_a)
         c_b, s_b_prime = self.gen_b.encode(x_b)
+        if self.is_ganilla_gen:
+            c_a = c_a[-1]
+            c_b = c_b[-1]
         # decode (within domain)
         x_a_recon = self.gen_a.decode(c_a, s_a_prime)
         x_b_recon = self.gen_b.decode(c_b, s_b_prime)
@@ -84,6 +95,9 @@ class MUNIT_Trainer(nn.Module):
         # encode again
         c_b_recon, s_a_recon = self.gen_a.encode(x_ba)
         c_a_recon, s_b_recon = self.gen_b.encode(x_ab)
+        if self.is_ganilla_gen:
+            c_b_recon = c_b_recon[-1]
+            c_a_recon = c_a_recon[-1]
         # decode again (if needed)
         x_aba = self.gen_a.decode(c_a_recon, s_a_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
         x_bab = self.gen_b.decode(c_b_recon, s_b_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None

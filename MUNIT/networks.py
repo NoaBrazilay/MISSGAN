@@ -14,8 +14,78 @@ except ImportError: # will be 3.x series
 ##################################################################################
 # Discriminator
 ##################################################################################
-class UnetDis(nn.Module):
+# Defines the PatchGAN discriminator with the specified arguments.
+class PatchDis(nn.Module):
     def __init__(self, input_dim, params):
+        super(PatchDis, self).__init__()
+
+        self.n_layer = params['self.patch_n_layer']
+        self.dim = params['dim']
+        self.norm = params['norm']
+        self.activ = params['activ']
+        self.num_scales = params['num_scales']
+        self.gan_type = params['gan_type']
+        self.pad_type = params['pad_type']
+        self.use_sigmoid = not (self.gan_type =='lsgan')
+        self.input_dim = input_dim
+
+        for _ in range(self.num_scales):
+            self.cnns.append(self._make_net())
+
+    def _make_net(self):
+        dim = self.dim
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(self.input_dim, self.dim, kernel_size=kw, stride=2, padding=padw),
+                    nn.LeakyReLU(0.2, True)]
+        for i in range(self.n_layer - 1):
+            sequence += [
+                Conv2dBlock(dim, dim * 2, kw, 2, padw, norm=self.norm, activation=self.activ, pad_type=self.pad_type)]
+            dim *= 2
+        sequence += [nn.Conv2d(dim, dim * 2, 1, kernel_size=kw, stride=1, padding=padw)]
+        if self.use_sigmoid:
+            sequence += [nn.Sigmoid()]
+        sequence = nn.Sequential(*sequence)
+        return sequence
+
+    def forward(self, x):
+        outputs = []
+        for model in self.cnns:
+            outputs.append(model(x))
+            # x = self.downsample(x)
+        return outputs
+
+    def calc_dis_loss(self, input_fake, input_real):
+        # calculate the loss to train D
+        outs0 = self.forward(input_fake)
+        outs1 = self.forward(input_real)
+        loss = 0
+
+        for it, (out0, out1) in enumerate(zip(outs0, outs1)):
+            if self.gan_type == 'lsgan':
+                loss += torch.mean((out0 - 0)**2) + torch.mean((out1 - 1)**2)
+            elif self.gan_type == 'nsgan':
+                all0 = Variable(torch.zeros_like(out0.data).cuda(), requires_grad=False)
+                all1 = Variable(torch.ones_like(out1.data).cuda(), requires_grad=False)
+                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all0) +
+                                   F.binary_cross_entropy(F.sigmoid(out1), all1))
+            else:
+                assert 0, "Unsupported GAN type: {}".format(self.gan_type)
+        return loss
+
+    def calc_gen_loss(self, input_fake):
+        # calculate the loss to train G
+        outs0 = self.forward(input_fake)
+        loss = 0
+        for it, (out0) in enumerate(outs0):
+            if self.gan_type == 'lsgan':
+                loss += torch.mean((out0 - 1)**2) # LSGAN
+            elif self.gan_type == 'nsgan':
+                all1 = Variable(torch.ones_like(out0.data).cuda(), requires_grad=False)
+                loss += torch.mean(F.binary_cross_entropy(F.sigmoid(out0), all1))
+            else:
+                assert 0, "Unsupported GAN type: {}".format(self.gan_type)
+        return loss
 
 class MsImageDis(nn.Module):
     # Multi-scale discriminator architecture
@@ -175,9 +245,13 @@ class AdaINGanilla(nn.Module):
 
         # Ganilla Content Encoder
         self.enc_content = GanillaContentEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
-                                          use_dropout, norm = 'in', pad_type =pad_type)
+                                                 use_dropout, norm = 'in', pad_type =pad_type)
 
-        self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, input_dim, res_norm='adain', activ=activ, pad_type=pad_type)
+        sk_sizes = [self.enc_style.layer1[ganilla_layer_nb[0] - 1].conv2.out_channels,
+                    self.enc_style.layer2[ganilla_layer_nb[1] - 1].conv2.out_channels,
+                    self.enc_style.layer3[ganilla_layer_nb[2] - 1].conv2.out_channels,
+                    self.enc_style.layer4[ganilla_layer_nb[3] - 1].conv2.out_channels]
+        self.dec = GanillaDecoder(*sk_sizes, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
         self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
@@ -277,7 +351,6 @@ class StyleEncoder(nn.Module):
     def forward(self, x):
         return self.model(x)
 
-
 class GanillaStyleEncoder(nn.Module):
     def __init__(self, input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb, use_dropout, norm, pad_type):
         super(GanillaStyleEncoder, self).__init__()
@@ -343,7 +416,7 @@ class GanillaContentEncoder(nn.Module):
         x4 = self.layer4(x3)
 
         out = x4
-        return out, x1, x2, x3, x4
+        return [x1, x2, x3, out]
 
 class ContentEncoder(nn.Module):
     def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type):
@@ -362,10 +435,64 @@ class ContentEncoder(nn.Module):
 
     def forward(self, x):
         return self.model(x)
+
 class GanillaDecoder(nn.Module):
-    def __init__(self):
+    def __init__(self,  C2_size, C3_size, C4_size, C5_size, res_norm='none', activ='lrelu', pad_type='reflect', feature_size=128):
         super(GanillaDecoder, self).__init__()
-        #TODO continue NOA
+        # upsample C5 to get P5 from the FPN paper
+        kw_adain = 3
+        pdw_adain=0
+        self.P5_1 = nn.Conv2d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P5_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P5_2 = Conv2dBlock(feature_size, feature_size, kw_adain, 1, pdw_adain, norm=res_norm, activation=activ,
+                                pad_type=pad_type)
+
+        # add P5 elementwise to C4
+        self.P4_1 = nn.Conv2d(C4_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P4_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P4_2 = Conv2dBlock(feature_size, feature_size, kw_adain, 1, pdw_adain, norm=res_norm, activation=activ,
+                                pad_type=pad_type)
+
+        # add P4 elementwise to C3
+        self.P3_1 = nn.Conv2d(C3_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P3_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P3_2 = Conv2dBlock(feature_size, feature_size, kw_adain, 1, pdw_adain, norm=res_norm, activation=activ,
+                                pad_type=pad_type)
+
+        self.P2_1 = nn.Conv2d(C2_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P2_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.rp4 = nn.ReflectionPad2d(1)
+        self.P2_2 = nn.Conv2d(int(feature_size), int(feature_size / 2), kernel_size=3, stride=1, padding=0)
+
+    def forward(self, inputs):
+
+        C2, C3, C4, C5 = inputs
+
+        i = 0
+        P5_x = self.P5_1(C5)
+        P5_upsampled_x = self.P5_upsampled(P5_x)
+        P5_adain_x = self.P5_2(P5_upsampled_x)
+
+        i += 1
+        P4_x = self.P4_1(C4)
+        P4_x = P5_adain_x + P4_x
+        P4_upsampled_x = self.P4_upsampled(P4_x)
+        P4_adain_x = self.P5_2(P4_upsampled_x)
+
+        i += 1
+        P3_x = self.P3_1(C3)
+        P3_x = P3_x + P4_adain_x
+        P3_upsampled_x = self.P3_upsampled(P3_x)
+        P3_adain_x = self.P5_2(P3_upsampled_x)
+
+        i += 1
+        P2_x = self.P2_1(C2)
+        P2_x = P2_x + P3_adain_x
+        P2_upsampled_x = self.P2_upsampled(P2_x)
+        P2_x = self.rp4(P2_upsampled_x)
+        P2_x = self.P2_2(P2_x)
+
+        return P2_x
 
 class Decoder(nn.Module):
     def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
