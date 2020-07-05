@@ -17,5 +17,7 @@ Ganilla/.idea/
 *.pyc
 *jpg
 *png
+*.t7
+*.log
 
 

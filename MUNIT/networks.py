@@ -19,7 +19,7 @@ class PatchDis(nn.Module):
     def __init__(self, input_dim, params):
         super(PatchDis, self).__init__()
 
-        self.n_layer = params['self.patch_n_layer']
+        self.n_layer = params['patch_n_layer']
         self.dim = params['dim']
         self.norm = params['norm']
         self.activ = params['activ']
@@ -28,6 +28,7 @@ class PatchDis(nn.Module):
         self.pad_type = params['pad_type']
         self.use_sigmoid = not (self.gan_type =='lsgan')
         self.input_dim = input_dim
+        self.cnns = nn.ModuleList()
 
         for _ in range(self.num_scales):
             self.cnns.append(self._make_net())
@@ -42,7 +43,7 @@ class PatchDis(nn.Module):
             sequence += [
                 Conv2dBlock(dim, dim * 2, kw, 2, padw, norm=self.norm, activation=self.activ, pad_type=self.pad_type)]
             dim *= 2
-        sequence += [nn.Conv2d(dim, dim * 2, 1, kernel_size=kw, stride=1, padding=padw)]
+        sequence += [nn.Conv2d(dim, dim * 2, kernel_size=kw, stride=1, padding=padw)]
         if self.use_sigmoid:
             sequence += [nn.Sigmoid()]
         sequence = nn.Sequential(*sequence)
@@ -238,20 +239,22 @@ class AdaINGanilla(nn.Module):
         ganilla_block_nf  = params['ganilla_block_nf']
         ganilla_layer_nb  = params['ganilla_layer_nb']
         use_dropout       = params['use_dropout']
-
+        output_dim        = params['output_dim']
         # Ganilla Style Encoder
-        self.enc_style = GanillaStyleEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
-                                             use_dropout, norm = 'in', pad_type =pad_type)
+        # self.enc_style = GanillaStyleEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
+        #                                      use_dropout, norm = 'in', pad_type =pad_type)
+        # style encoder
+        self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
 
         # Ganilla Content Encoder
-        self.enc_content = GanillaContentEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
+        self.enc_content = GanillaContentEncoder(input_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
                                                  use_dropout, norm = 'in', pad_type =pad_type)
 
-        sk_sizes = [self.enc_style.layer1[ganilla_layer_nb[0] - 1].conv2.out_channels,
-                    self.enc_style.layer2[ganilla_layer_nb[1] - 1].conv2.out_channels,
-                    self.enc_style.layer3[ganilla_layer_nb[2] - 1].conv2.out_channels,
-                    self.enc_style.layer4[ganilla_layer_nb[3] - 1].conv2.out_channels]
-        self.dec = GanillaDecoder(*sk_sizes, res_norm='adain', activ=activ, pad_type=pad_type)
+        sk_sizes = [self.enc_content.layer1[ganilla_layer_nb[0] - 1].conv2.out_channels,
+                    self.enc_content.layer2[ganilla_layer_nb[1] - 1].conv2.out_channels,
+                    self.enc_content.layer3[ganilla_layer_nb[2] - 1].conv2.out_channels,
+                    self.enc_content.layer4[ganilla_layer_nb[3] - 1].conv2.out_channels]
+        self.dec = GanillaDecoder(output_dim, *sk_sizes, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
         self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
@@ -357,14 +360,14 @@ class GanillaStyleEncoder(nn.Module):
 
         self.layer0 = FirstBlock_Ganilla(input_dim, ganilla_ngf, norm=norm, pad_type=pad_type)
         # residuals
-        self.layer1 = self._make_layer(BasicBlock_Ganilla, ganilla_ngf, ganilla_block_nf[0], ganilla_layer_nb[0],
-                                       use_dropout, stride=1)
-        self.layer2 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[0], ganilla_block_nf[1],
-                                       ganilla_layer_nb[1], use_dropout, stride=2)
-        self.layer3 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[1], ganilla_block_nf[2],
-                                       ganilla_layer_nb[2], use_dropout, stride=2)
-        self.layer4 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[2], ganilla_block_nf[3],
-                                       ganilla_layer_nb[3], use_dropout, stride=2)
+        self.layer1 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_ngf, ganilla_block_nf[0], ganilla_layer_nb[0],
+                                               use_dropout, stride=1)
+        self.layer2 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[0], ganilla_block_nf[1],
+                                               ganilla_layer_nb[1], use_dropout, stride=2)
+        self.layer3 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[1], ganilla_block_nf[2],
+                                               ganilla_layer_nb[2], use_dropout, stride=2)
+        self.layer4 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[2], ganilla_block_nf[3],
+                                               ganilla_layer_nb[3], use_dropout, stride=2)
 
         self.pool_layer = nn.AdaptiveAvgPool2d(1) # global average pooling
         self.fc_style   = nn.Conv2d(ganilla_block_nf[3], style_dim, 1, 1, 0)
@@ -374,8 +377,8 @@ class GanillaStyleEncoder(nn.Module):
         strides = [stride] + [1] * (blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(block(inplanes, planes, use_dropout, stride))
-            self.inplanes = planes * block.expansion
+            layers.append(block(inplanes, planes, use_dropout, stride=stride, norm = 'in', pad_type = 'reflect'))
+            inplanes = planes # * block.expansion
         return nn.Sequential(*layers)
 
     def forward(self, x):
@@ -398,14 +401,22 @@ class GanillaContentEncoder(nn.Module):
 
         self.layer0 = FirstBlock_Ganilla(input_dim, ganilla_ngf, norm=norm, pad_type=pad_type)
         # residuals
-        self.layer1 = self._make_layer(BasicBlock_Ganilla, ganilla_ngf, ganilla_block_nf[0], ganilla_layer_nb[0],
-                                       use_dropout, stride=1)
-        self.layer2 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[0], ganilla_block_nf[1],
-                                       ganilla_layer_nb[1], use_dropout, stride=2)
-        self.layer3 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[1], ganilla_block_nf[2],
-                                       ganilla_layer_nb[2], use_dropout, stride=2)
-        self.layer4 = self._make_layer(BasicBlock_Ganilla, ganilla_block_nf[2], ganilla_block_nf[3],
-                                       ganilla_layer_nb[3], use_dropout, stride=2)
+        self.layer1 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_ngf, ganilla_block_nf[0], ganilla_layer_nb[0],
+                                               use_dropout, stride=1)
+        self.layer2 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[0], ganilla_block_nf[1],
+                                               ganilla_layer_nb[1], use_dropout, stride=2)
+        self.layer3 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[1], ganilla_block_nf[2],
+                                               ganilla_layer_nb[2], use_dropout, stride=2)
+        self.layer4 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[2], ganilla_block_nf[3],
+                                               ganilla_layer_nb[3], use_dropout, stride=2)
+
+    def _make_layer_ganilla(self, block, inplanes, planes, blocks, use_dropout, stride=1):
+        strides = [stride] + [1] * (blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(inplanes, planes, use_dropout, stride=stride, norm = 'in', pad_type = 'reflect'))
+            inplanes = planes # * block.expansion
+        return nn.Sequential(*layers)
 
     def forward(self, x):
         # Ganilla Encoder
@@ -437,11 +448,11 @@ class ContentEncoder(nn.Module):
         return self.model(x)
 
 class GanillaDecoder(nn.Module):
-    def __init__(self,  C2_size, C3_size, C4_size, C5_size, res_norm='none', activ='lrelu', pad_type='reflect', feature_size=128):
+    def __init__(self, output_dim, C2_size, C3_size, C4_size, C5_size, res_norm='none', activ='lrelu', pad_type='reflect', feature_size=128):
         super(GanillaDecoder, self).__init__()
         # upsample C5 to get P5 from the FPN paper
         kw_adain = 3
-        pdw_adain=0
+        pdw_adain=1
         self.P5_1 = nn.Conv2d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
         self.P5_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
         self.P5_2 = Conv2dBlock(feature_size, feature_size, kw_adain, 1, pdw_adain, norm=res_norm, activation=activ,
@@ -464,6 +475,8 @@ class GanillaDecoder(nn.Module):
         self.rp4 = nn.ReflectionPad2d(1)
         self.P2_2 = nn.Conv2d(int(feature_size), int(feature_size / 2), kernel_size=3, stride=1, padding=0)
 
+        self.final= Conv2dBlock(int(feature_size / 2), output_dim, 7, 1, padding=output_dim, norm='none', activation='tanh',
+                                pad_type=pad_type)
     def forward(self, inputs):
 
         C2, C3, C4, C5 = inputs
@@ -492,7 +505,8 @@ class GanillaDecoder(nn.Module):
         P2_x = self.rp4(P2_upsampled_x)
         P2_x = self.P2_2(P2_x)
 
-        return P2_x
+        out = self.final(P2_x)
+        return out
 
 class Decoder(nn.Module):
     def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
@@ -605,23 +619,23 @@ class BasicBlock_Ganilla(nn.Module):
         self.out_planes = output_dim
 
         self.shortcut = nn.Sequential()
-        if stride != 1 or input_dim != self.expansion * output_dim:
+        if stride != 1 or input_dim != output_dim:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(input_dim, self.expansion * output_dim, kernel_size=1, stride=stride, bias=False),
-                self.norm(self.expansion * output_dim)
+                nn.Conv2d(input_dim,  output_dim, kernel_size=1, stride=stride, bias=False),
+                self.norm
             )
 
             self.final_conv = nn.Sequential(
                 self.pad,
                 nn.Conv2d(self.expansion * output_dim * 2, self.expansion * output_dim, kernel_size=3, stride=1,
                           padding=0, bias=False),
-                nn.InstanceNorm2d(self.expansion * output_dim)
+                self.norm
             )
         else:
             self.final_conv = nn.Sequential(
-                nn.ReflectionPad2d(1),
+                self.pad,
                 nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, stride=1, padding=0, bias=False),
-                nn.InstanceNorm2d(output_dim)
+                self.norm
             )
 
     def forward(self, x):
@@ -640,17 +654,17 @@ class FirstBlock_Ganilla(nn.Module):
 
     # input_dim = input_nc, output_dim = ngf (number generator filters in the first layer)
     def __init__(self, input_dim, output_dim, padding=1, norm='none', pad_type='reflect'):
-        super(BasicBlock_Ganilla, self).__init__()
+        super(FirstBlock_Ganilla, self).__init__()
         self.expansion = 1
 
         # initialize padding
         if pad_type == 'reflect':
             # Pads the input tensor using the reflection of the input boundary
-            self.pad = nn.ReflectionPad2d()
+            self.pad = nn.ReflectionPad2d
         elif pad_type == 'replicate':
-            self.pad = nn.ReplicationPad2d()
+            self.pad = nn.ReplicationPad2d
         elif pad_type == 'zero':
-            self.pad = nn.ZeroPad2d()
+            self.pad = nn.ZeroPad2d
         else:
             assert 0, "Unsupported padding type: {}".format(pad_type)
 

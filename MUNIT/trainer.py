@@ -3,7 +3,7 @@ Copyright (C) 2017 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 from networks import AdaINGen, AdaINGanilla, MsImageDis, VAEGen, PatchDis
-from utils import weights_init, get_model_list, vgg_preprocess, load_vgg16, get_scheduler
+from utils import VggExtract, weights_init, get_model_list, vgg_preprocess, load_vgg16, get_scheduler
 from torch.autograd import Variable
 import torch
 import torch.nn as nn
@@ -21,9 +21,11 @@ class MUNIT_Trainer(nn.Module):
         else:
             self.gen_a = AdaINGanilla(hyperparameters['input_dim_a'], hyperparameters['gen'])  # auto-encoder for domain a with ganilla architecture
             self.gen_b = AdaINGanilla(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b with ganilla architecture
+            print(self.gen_a)
         if hyperparameters['dis']['dis_type'] == 'patch':
             self.dis_a = PatchDis(hyperparameters['input_dim_a'], hyperparameters['dis'])
             self.dis_b = PatchDis(hyperparameters['input_dim_b'], hyperparameters['dis'])
+            print(self.dis_a)
         else:
             self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'])  # discriminator for domain a
             self.dis_b = MsImageDis(hyperparameters['input_dim_b'], hyperparameters['dis'])  # discriminator for domain b
@@ -56,6 +58,7 @@ class MUNIT_Trainer(nn.Module):
         if 'vgg_w' in hyperparameters.keys() and hyperparameters['vgg_w'] > 0:
             self.vgg = load_vgg16(hyperparameters['vgg_model_path'] + '/models')
             self.vgg.eval()
+            self.VggExtract = VggExtract(self.vgg)
             for param in self.vgg.parameters():
                 param.requires_grad = False
 
@@ -83,9 +86,7 @@ class MUNIT_Trainer(nn.Module):
         # encode
         c_a, s_a_prime = self.gen_a.encode(x_a)
         c_b, s_b_prime = self.gen_b.encode(x_b)
-        if self.is_ganilla_gen:
-            c_a = c_a[-1]
-            c_b = c_b[-1]
+
         # decode (within domain)
         x_a_recon = self.gen_a.decode(c_a, s_a_prime)
         x_b_recon = self.gen_b.decode(c_b, s_b_prime)
@@ -95,13 +96,16 @@ class MUNIT_Trainer(nn.Module):
         # encode again
         c_b_recon, s_a_recon = self.gen_a.encode(x_ba)
         c_a_recon, s_b_recon = self.gen_b.encode(x_ab)
-        if self.is_ganilla_gen:
-            c_b_recon = c_b_recon[-1]
-            c_a_recon = c_a_recon[-1]
+
         # decode again (if needed)
         x_aba = self.gen_a.decode(c_a_recon, s_a_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
         x_bab = self.gen_b.decode(c_b_recon, s_b_prime) if hyperparameters['recon_x_cyc_w'] > 0 else None
 
+        if self.is_ganilla_gen:
+            c_a = c_a[-1]
+            c_b = c_b[-1]
+            c_b_recon = c_b_recon[-1]
+            c_a_recon = c_a_recon[-1]
         # reconstruction loss
         self.loss_gen_recon_x_a = self.recon_criterion(x_a_recon, x_a)
         self.loss_gen_recon_x_b = self.recon_criterion(x_b_recon, x_b)
@@ -136,8 +140,10 @@ class MUNIT_Trainer(nn.Module):
     def compute_vgg_loss(self, vgg, img, target):
         img_vgg = vgg_preprocess(img)
         target_vgg = vgg_preprocess(target)
-        img_fea = vgg(img_vgg)
-        target_fea = vgg(target_vgg)
+        # img_fea = vgg(img_vgg)
+        # target_fea = vgg(target_vgg)
+        img_fea = self.VggExtract(img_vgg)['relu4_3']
+        target_fea = self.VggExtract(target_vgg)['relu4_3']
         return torch.mean((self.instancenorm(img_fea) - self.instancenorm(target_fea)) ** 2)
 
     def sample(self, x_a, x_b):

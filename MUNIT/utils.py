@@ -10,6 +10,7 @@ from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torchvision import transforms
 from data import ImageFilelist, ImageFolder
+import torchvision.models as models
 import torch
 import torch.nn as nn
 import os
@@ -19,6 +20,8 @@ import yaml
 import numpy as np
 import torch.nn.init as init
 import time
+
+
 # Methods
 # get_all_data_loaders      : primary data loader interface (load trainA, testA, trainB, testB)
 # get_data_loader_list      : list-based data loader
@@ -221,19 +224,21 @@ def get_model_list(dirname, key):
 
 def load_vgg16(model_dir):
     """ Use the model from https://github.com/abhiskk/fast-neural-style/blob/master/neural_style/utils.py """
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
-    if not os.path.exists(os.path.join(model_dir, 'vgg16.weight')):
-        if not os.path.exists(os.path.join(model_dir, 'vgg16.t7')):
-            os.system('wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O ' + os.path.join(model_dir, 'vgg16.t7'))
-        vgglua = torchfile.load(os.path.join(model_dir, 'vgg16.t7'))
-        vgg = Vgg16()
-        for (src, dst) in zip(vgglua.parameters()[0], vgg.parameters()):
-            dst.data[:] = src
-        torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg16.weight'))
-    vgg = Vgg16()
-    vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
-    return vgg
+    # if not os.path.exists(model_dir):
+    #     os.mkdir(model_dir)
+    # if not os.path.exists(os.path.join(model_dir, 'vgg16.weight')):
+    #     if not os.path.exists(os.path.join(model_dir, 'vgg16.t7')):
+    #         os.system('wget https://www.dropbox.com/s/76l3rt4kyi3s8x7/vgg16.t7?dl=1 -O ' + os.path.join(model_dir, 'vgg16.t7'))
+    #     vgglua = torchfile.load(os.path.join(model_dir, 'vgg16.t7'), force_8bytes_long=True)
+    #     vgg = Vgg16()
+    #     for (src, dst) in zip(vgglua.parameters()[0], vgg.parameters()):
+    #         dst.data[:] = src
+    #     torch.save(vgg.state_dict(), os.path.join(model_dir, 'vgg16.weight'))
+    # vgg = Vgg16()
+    # vgg.load_state_dict(torch.load(os.path.join(model_dir, 'vgg16.weight')))
+    vgg16 = models.vgg16(pretrained=True)# relu4_3 layer
+    vgg16.cuda()
+    return vgg16
 
 def load_inception(model_path):
     state_dict = torch.load(model_path)
@@ -258,6 +263,25 @@ def vgg_preprocess(batch):
     batch = batch.sub(Variable(mean)) # subtract mean
     return batch
 
+
+class VggExtract(torch.nn.Module):
+    def __init__(self, vgg_model):
+        super(VggExtract, self).__init__()
+        self.vgg_layers = vgg_model.features
+        self.layer_name_mapping = {
+            # '3': "relu1_2",
+            # '8': "relu2_2",
+            # '15': "relu3_3",
+            '22': "relu4_3"
+        }
+
+    def forward(self, x):
+        output = {}
+        for name, module in self.vgg_layers._modules.items():
+            x = module(x)
+            if name in self.layer_name_mapping:
+                output[self.layer_name_mapping[name]] = x
+        return output
 
 def get_scheduler(optimizer, hyperparameters, iterations=-1):
     if 'lr_policy' not in hyperparameters or hyperparameters['lr_policy'] == 'constant':

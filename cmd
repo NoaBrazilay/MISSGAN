@@ -1,0 +1,2 @@
+bash ./datasets/download_cyclegan_dataset.sh ukiyoe2photo
+--config configs/illustrations2landscapes_folder.yaml --input inputs/land2illu_1.jpg --output_folder results/illustrations2landscapes --checkpoint models/landscapes2illustrations.pt --a2b 0 --style inputs/StyleMB3.png
