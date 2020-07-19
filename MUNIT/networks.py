@@ -364,23 +364,23 @@ class GanillaStyleEncoder(nn.Module):
         self.layer0 = FirstBlock_Ganilla(input_dim, ganilla_ngf, norm=norm, pad_type=pad_type)
         # residuals
         self.layer1 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_ngf, ganilla_block_nf[0], ganilla_layer_nb[0],
-                                               use_dropout, stride=1)
+                                               use_dropout, norm, stride=1)
         self.layer2 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[0], ganilla_block_nf[1],
-                                               ganilla_layer_nb[1], use_dropout, stride=2)
+                                               ganilla_layer_nb[1], use_dropout, norm, stride=2)
         self.layer3 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[1], ganilla_block_nf[2],
-                                               ganilla_layer_nb[2], use_dropout, stride=2)
+                                               ganilla_layer_nb[2], use_dropout, norm, stride=2)
         self.layer4 = self._make_layer_ganilla(BasicBlock_Ganilla, ganilla_block_nf[2], ganilla_block_nf[3],
-                                               ganilla_layer_nb[3], use_dropout, stride=2)
+                                               ganilla_layer_nb[3], use_dropout, norm, stride=2)
 
         self.pool_layer = nn.AdaptiveAvgPool2d(1) # global average pooling
         self.fc_style   = nn.Conv2d(ganilla_block_nf[3], style_dim, 1, 1, 0)
 
 
-    def _make_layer_ganilla(self, block, inplanes, planes, blocks, use_dropout, stride=1):
+    def _make_layer_ganilla(self, block, inplanes, planes, blocks, use_dropout, norm, stride=1):
         strides = [stride] + [1] * (blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(block(inplanes, planes, use_dropout, stride=stride, norm = 'in', pad_type = 'reflect'))
+            layers.append(block(inplanes, planes, use_dropout, stride=stride, norm = norm, pad_type = 'reflect'))
             inplanes = planes # * block.expansion
         return nn.Sequential(*layers)
 
