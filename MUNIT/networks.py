@@ -490,13 +490,13 @@ class GanillaDecoder(nn.Module):
         P4_x = self.P4_1(C4)
         P4_x = P5_adain_x + P4_x
         P4_upsampled_x = self.P4_upsampled(P4_x)
-        P4_adain_x = self.P5_2(P4_upsampled_x)
+        P4_adain_x = self.P4_2(P4_upsampled_x)
 
         i += 1
         P3_x = self.P3_1(C3)
         P3_x = P3_x + P4_adain_x
         P3_upsampled_x = self.P3_upsampled(P3_x)
-        P3_adain_x = self.P5_2(P3_upsampled_x)
+        P3_adain_x = self.P3_2(P3_upsampled_x)
 
         i += 1
         P2_x = self.P2_1(C2)
