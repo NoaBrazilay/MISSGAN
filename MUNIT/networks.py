@@ -620,29 +620,48 @@ class BasicBlock_Ganilla(nn.Module):
 
         self.shortcut = nn.Sequential()
         if stride != 1 or input_dim != output_dim:
-            self.shortcut = nn.Sequential(
-                nn.Conv2d(input_dim,  output_dim, kernel_size=1, stride=stride, bias=False),
-                self.norm
-            )
-
-            self.final_conv = nn.Sequential(
-                self.pad,
-                nn.Conv2d(self.expansion * output_dim * 2, self.expansion * output_dim, kernel_size=3, stride=1,
-                          padding=0, bias=False),
-                self.norm
-            )
+            # self.shortcut = nn.Sequential(
+            #     nn.Conv2d(input_dim,  output_dim, kernel_size=1, stride=stride, bias=False),
+            #     self.norm
+            # )
+            shortcut_layers = [nn.Conv2d(input_dim,  output_dim, kernel_size=1, stride=stride, bias=False)]
+            if self.norm:
+                shortcut_layers += [self.norm]
+            self.shortcut = nn.Sequential(*shortcut_layers)
+            # self.final_conv = nn.Sequential(
+            #     self.pad,
+            #     nn.Conv2d(self.expansion * output_dim * 2, self.expansion * output_dim, kernel_size=3, stride=1,
+            #               padding=0, bias=False),
+            #     self.norm
+            # )
+            final_conv_layers = [self.pad]
+            final_conv_layers += [nn.Conv2d(self.expansion * output_dim * 2, self.expansion * output_dim, kernel_size=3, stride=1,
+                                  padding=0, bias=False)]
+            if self.norm:
+                final_conv_layers += [self.norm]
+            self.final_conv = nn.Sequential(*final_conv_layers)
         else:
-            self.final_conv = nn.Sequential(
-                self.pad,
-                nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, stride=1, padding=0, bias=False),
-                self.norm
-            )
+            # self.final_conv = nn.Sequential(
+            #     self.pad,
+            #     nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, stride=1, padding=0, bias=False),
+            #     self.norm
+            # )
+            final_conv_layers = [self.pad]
+            final_conv_layers += [nn.Conv2d(output_dim * 2, output_dim, kernel_size=3, stride=1, padding=0, bias=False)]
+            if self.norm:
+                final_conv_layers += [self.norm]
+            self.final_conv = nn.Sequential(*final_conv_layers)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(self.rp1(x))))
+        out = self.conv1(self.rp1(x))
+        if self.norm:
+            out = self.norm(out)
+        out = F.relu(out)
         if self.use_dropout:
             out = self.dropout(out)
-        out = self.bn2(self.conv2(self.rp2(out)))
+        out = self.conv2(self.rp2(out))
+        if self.norm:
+            out = self.norm(out)
         inputt = self.shortcut(x)
         catted = torch.cat((out, inputt), 1)
         out = self.final_conv(catted)
@@ -686,7 +705,7 @@ class FirstBlock_Ganilla(nn.Module):
 
         self.pad1    = self.pad(input_dim)
         self.conv1   = nn.Conv2d(input_dim, output_dim, kernel_size=7, stride=1, padding=0, bias=True)
-        self.in1     = nn.InstanceNorm2d(output_dim)
+        # self.norm    = nn.InstanceNorm2d(output_dim)
         self.relu    = nn.ReLU(inplace=True)
         self.pad2    = self.pad(padding)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
@@ -694,7 +713,8 @@ class FirstBlock_Ganilla(nn.Module):
     def forward(self, x):
         x = self.pad1(x)
         x = self.conv1(x)
-        x = self.in1(x)
+        if self.norm:
+            x = self.norm(x)
         x = self.relu(x)
         x = self.pad2(x)
         out = self.maxpool(x)
