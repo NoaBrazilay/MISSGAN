@@ -41,9 +41,12 @@ class PatchDis(nn.Module):
                     nn.LeakyReLU(0.2, True)]
         for i in range(self.n_layer - 1):
             sequence += [
-                Conv2dBlock(dim, dim * 2, kw, 2, padw, norm=self.norm, activation=self.activ, pad_type=self.pad_type)]
+                Conv2dBlock(dim, dim * 2, kw, 2, padw, norm=self.norm, activation=self.activ, pad_type='zero')]
             dim *= 2
-        sequence += [nn.Conv2d(dim, dim * 2, kernel_size=kw, stride=1, padding=padw)]
+        sequence +=[
+                Conv2dBlock(dim, dim * 2, kw, 1, padw, norm=self.norm, activation=self.activ, pad_type='zero')]
+
+        sequence += [nn.Conv2d(dim * 2, 1, kernel_size=kw, stride=1, padding=padw)]
         if self.use_sigmoid:
             sequence += [nn.Sigmoid()]
         sequence = nn.Sequential(*sequence)
