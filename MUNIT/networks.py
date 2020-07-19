@@ -511,6 +511,76 @@ class GanillaDecoder(nn.Module):
         out = self.final(P2_x)
         return out
 
+class GanillaDecoder2(nn.Module):
+    def __init__(self, n_res, output_dim, C2_size, C3_size, C4_size, C5_size, res_norm='none', activ='lrelu', pad_type='reflect', feature_size=128):
+        super(GanillaDecoder2, self).__init__()
+        # upsample C5 to get P5 from the FPN paper
+        kw_adain = 3
+        pdw_adain=1
+
+        self.res_block_model = []
+        # AdaIN residual blocks
+        self.res_block_model += [ResBlocks(n_res, C5_size, res_norm, activ, pad_type=pad_type)]
+        self.res_block_model = nn.Sequential(*self.res_block_model)
+
+        self.P5_1 = nn.Conv2d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P5_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P5_2 = Conv2dBlock(feature_size, feature_size, kw_adain, 1, pdw_adain, norm='ln', activation=activ,
+                                pad_type=pad_type)
+
+        # add P5 elementwise to C4
+        self.P4_1 = nn.Conv2d(C4_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P4_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P4_2 = Conv2dBlock(feature_size, feature_size, kw_adain, 1, pdw_adain, norm='ln', activation=activ,
+                                pad_type=pad_type)
+
+        # add P4 elementwise to C3
+        self.P3_1 = nn.Conv2d(C3_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P3_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.P3_2 = Conv2dBlock(feature_size, feature_size, kw_adain, 1, pdw_adain, norm='ln', activation=activ,
+                                pad_type=pad_type)
+
+        self.P2_1 = nn.Conv2d(C2_size, feature_size, kernel_size=1, stride=1, padding=0)
+        self.P2_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
+        self.rp4 = nn.ReflectionPad2d(1)
+        self.P2_2 = nn.Conv2d(int(feature_size), int(feature_size / 2), kernel_size=3, stride=1, padding=0)
+
+        self.final= Conv2dBlock(int(feature_size / 2), output_dim, 7, 1, padding=output_dim, norm='none', activation='tanh',
+                                pad_type=pad_type)
+    def forward(self, inputs):
+
+        C2, C3, C4, C5 = inputs
+
+        res_x = self.res_block_model(C5)
+
+        i = 0
+        P5_x = self.P5_1(res_x)
+        P5_upsampled_x = self.P5_upsampled(P5_x)
+        #P5_adain_x = self.P5_2(P5_upsampled_x)
+
+        i += 1
+        P4_x = self.P4_1(C4)
+        P4_x = P5_upsampled_x + P4_x
+        P4_upsampled_x = self.P4_upsampled(P4_x)
+        #P4_adain_x = self.P4_2(P4_upsampled_x)
+
+        i += 1
+        P3_x = self.P3_1(C3)
+        P3_x = P3_x + P4_upsampled_x
+        P3_upsampled_x = self.P3_upsampled(P3_x)
+        #P3_adain_x = self.P3_2(P3_upsampled_x)
+
+        i += 1
+        P2_x = self.P2_1(C2)
+        P2_x = P2_x + P3_upsampled_x
+        P2_upsampled_x = self.P2_upsampled(P2_x)
+        P2_x = self.rp4(P2_upsampled_x)
+        P2_x = self.P2_2(P2_x)
+
+        out = self.final(P2_x)
+        return out
+
+
 class Decoder(nn.Module):
     def __init__(self, n_upsample, n_res, dim, output_dim, res_norm='adain', activ='relu', pad_type='zero'):
         super(Decoder, self).__init__()
