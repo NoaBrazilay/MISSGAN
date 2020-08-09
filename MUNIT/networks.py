@@ -858,7 +858,6 @@ class Conv2dBlock(nn.Module):
             x = self.activation(x)
         return x
 
-
 class LinearBlock(nn.Module):
     def __init__(self, input_dim, output_dim, norm='none', activation='relu'):
         super(LinearBlock, self).__init__()
@@ -905,6 +904,136 @@ class LinearBlock(nn.Module):
         if self.activation:
             out = self.activation(out)
         return out
+
+class BigGUnetDecoder(nn.Module):
+    def __init__(self, D_init='ortho', output_dim=1, D_activation=nn.ReLU(inplace=False), D_wide=True, SN_eps=1e-12):
+
+        # Network Architecture
+        ch = 64
+        self.resolution   = [128, 64, 32, 16, 8, 4]
+        self.out_channels = [item * ch for item in [1, 2, 4, 8, 16, 16]]
+        self.in_channels  = [3] + [ch*item for item in [1, 2, 4, 8, 16]]
+
+        self.which_conv = functools.partial(SNConv2d,
+                          kernel_size=3, padding=1,
+                          num_svs=1, num_itrs=1,
+                          eps=self.SN_eps)
+        self.which_linear = functools.partial(SNLinear,
+                                              num_svs=1, num_itrs=1,
+                                              eps=self.SN_eps)
+        self.which_embedding = functools.partial(SNEmbedding,
+                                                 num_svs=1, num_itrs=1,
+                                                 eps=self.SN_eps)
+        # Epsilon for Spectral Norm?
+        self.SN_eps = SN_eps
+        # Use Wide D as in BigGAN
+        self.D_wide = D_wide
+        # Activation
+        self.activation = D_activation
+
+        self.blocks = []
+        for index in range(len(self.out_channels)):
+            self.blocks += [[BigGDBlock(in_channels=self.in_channels[index],
+                                           out_channels=self.out_channels[index],
+                                           which_conv=self.which_conv,
+                                           wide=self.D_wide,
+                                           activation=self.activation,
+                                           preactivation=(index > 0),
+                                           downsample=(nn.AvgPool2d(2) if self.arch['downsample'][index] else None))]]
+
+        # Turn self.blocks into a ModuleList so that it's all properly registered.
+        self.blocks = nn.ModuleList([nn.ModuleList(block) for block in self.blocks])
+
+        # larger if we're e.g. turning this into a VAE with an inference output
+        self.linear = self.which_linear(self.arch['out_channels'][-1], output_dim)
+        # Embedding for projection discrimination
+        # self.embed = self.which_embedding(self.n_classes, self.arch['out_channels'][-1])
+        self.init_weights()
+
+        # self.optim = optim.Adam(params=self.parameters(), lr=self.lr,
+        #                         betas=(self.B1, self.B2), weight_decay=0, eps=self.adam_eps)
+
+        # Initialize
+        def init_weights(self):
+            self.param_count = 0
+            for module in self.modules():
+                if (isinstance(module, nn.Conv2d)
+                        or isinstance(module, nn.Linear)
+                        or isinstance(module, nn.Embedding)):
+                    if self.init == 'ortho':
+                        init.orthogonal_(module.weight)
+                    elif self.init == 'N02':
+                        init.normal_(module.weight, 0, 0.02)
+                    elif self.init in ['glorot', 'xavier']:
+                        init.xavier_uniform_(module.weight)
+                    else:
+                        print('Init style not recognized...')
+                    self.param_count += sum([p.data.nelement() for p in module.parameters()])
+            print('Param count for G''s initialized parameters: %d' % self.param_count)
+
+        def forward(self, x, y=None):
+            # Stick x into h for cleaner for loops without flow control
+            h = x
+            # Loop over blocks
+            for index, blocklist in enumerate(self.blocks):
+                for block in blocklist:
+                    h = block(h)
+            # Apply global sum pooling as in SN-GAN
+            h = torch.sum(self.activation(h), [2, 3])
+            # Get initial class-unconditional output
+            out = self.linear(h)
+            # Get projection of final featureset onto class vectors and add to evidence
+            out = out + torch.sum(self.embed(y) * h, 1, keepdim=True)
+            return out
+
+# Residual block for the discriminator
+class BigGDBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, wide=True,
+                 preactivation=False, activation=None, downsample=None, ):
+        super(BigGDBlock, self).__init__()
+        self.in_channels, self.out_channels = in_channels, out_channels
+        # If using wide D (as in SA-GAN and BigGAN), change the channel pattern
+        self.hidden_channels = self.out_channels if wide else self.in_channels
+        self.which_conv = SNConv2d
+        self.preactivation = preactivation
+        self.activation = activation
+        self.downsample = downsample
+
+        # Conv layers
+        self.conv1 = self.which_conv(self.in_channels, self.hidden_channels)
+        self.conv2 = self.which_conv(self.hidden_channels, self.out_channels)
+        self.learnable_sc = True if (in_channels != out_channels) or downsample else False
+        if self.learnable_sc:
+            self.conv_sc = self.which_conv(in_channels, out_channels,
+                                           kernel_size=1, padding=0)
+
+    def shortcut(self, x):
+        if self.preactivation:
+            if self.learnable_sc:
+                x = self.conv_sc(x)
+            if self.downsample:
+                x = self.downsample(x)
+        else:
+            if self.downsample:
+                x = self.downsample(x)
+            if self.learnable_sc:
+                x = self.conv_sc(x)
+        return x
+
+    def forward(self, x):
+        if self.preactivation:
+            # h = self.activation(x) # NOT TODAY SATAN
+            # Andy's note: This line *must* be an out-of-place ReLU or it
+            #              will negatively affect the shortcut connection.
+            h = F.relu(x)
+        else:
+            h = x
+        h = self.conv1(h)
+        h = self.conv2(self.activation(h))
+        if self.downsample:
+            h = self.downsample(h)
+
+        return h + self.shortcut(x)
 
 ##################################################################################
 # VGG network definition
@@ -994,7 +1123,6 @@ class AdaptiveInstanceNorm2d(nn.Module):
     def __repr__(self):
         return self.__class__.__name__ + '(' + str(self.num_features) + ')'
 
-
 class LayerNorm(nn.Module):
     def __init__(self, num_features, eps=1e-5, affine=True):
         super(LayerNorm, self).__init__()
@@ -1026,7 +1154,6 @@ class LayerNorm(nn.Module):
 
 def l2normalize(v, eps=1e-12):
     return v / (v.norm() + eps)
-
 
 class SpectralNorm(nn.Module):
     """
@@ -1087,3 +1214,61 @@ class SpectralNorm(nn.Module):
     def forward(self, *args):
         self._update_u_v()
         return self.module.forward(*args)
+
+# Spectral normalization base class based on BigGan implementation
+class SN(object):
+    def __init__(self, num_svs, num_itrs, num_outputs, transpose=False, eps=1e-12):
+        # Number of power iterations per step
+        self.num_itrs = num_itrs
+        # Number of singular values
+        self.num_svs = num_svs
+        # Transposed?
+        self.transpose = transpose
+        # Epsilon value for avoiding divide-by-0
+        self.eps = eps
+        # Register a singular vector for each sv
+        for i in range(self.num_svs):
+            self.register_buffer('u%d' % i, torch.randn(1, num_outputs))
+            self.register_buffer('sv%d' % i, torch.ones(1))
+
+    # Singular vectors (u side)
+    @property
+    def u(self):
+        return [getattr(self, 'u%d' % i) for i in range(self.num_svs)]
+
+    # Singular values;
+    # note that these buffers are just for logging and are not used in training.
+    @property
+    def sv(self):
+        return [getattr(self, 'sv%d' % i) for i in range(self.num_svs)]
+
+    # Compute the spectrally-normalized weight
+    def W_(self):
+        W_mat = self.weight.view(self.weight.size(0), -1)
+        if self.transpose:
+            W_mat = W_mat.t()
+        # Apply num_itrs power iterations
+        for _ in range(self.num_itrs):
+            svs, us, vs = utils.power_iteration(W_mat, self.u, update=self.training, eps=self.eps)
+            # Update the svs
+        if self.training:
+            with torch.no_grad():  # Make sure to do this in a no_grad() context or you'll get memory leaks!
+                for i, sv in enumerate(svs):
+                    self.sv[i][:] = sv
+        return self.weight / svs[0]
+
+##################################################################################
+# Convolution layers
+##################################################################################
+
+# 2D Conv layer with spectral norm
+class SNConv2d(nn.Conv2d, SN):
+  def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+             padding=0, dilation=1, groups=1, bias=True,
+             num_svs=1, num_itrs=1, eps=1e-12):
+    nn.Conv2d.__init__(self, in_channels, out_channels, kernel_size, stride,
+                     padding, dilation, groups, bias)
+    SN.__init__(self, num_svs, num_itrs, out_channels, eps=eps)
+  def forward(self, x):
+    return F.conv2d(x, self.W_(), self.bias, self.stride,
+                    self.padding, self.dilation, self.groups)
