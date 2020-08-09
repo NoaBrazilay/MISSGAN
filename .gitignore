@@ -19,5 +19,7 @@ Ganilla/.idea/
 *png
 *.t7
 *.log
-
+*.pt
+*.suo
+*.sqlite
 
