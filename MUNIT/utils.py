@@ -9,6 +9,7 @@ from networks import Vgg16
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 from torchvision import transforms
+import torch.nn.functional as F
 from data import ImageFilelist, ImageFolder
 import torchvision.models as models
 import torch
@@ -122,8 +123,8 @@ def __write_images(image_outputs, display_image_num, file_name):
 
 def write_2images(image_outputs, display_image_num, image_directory, postfix):
     n = len(image_outputs)
-    __write_images(image_outputs[0:n//2], display_image_num, '%s/gen_a2b_%s.jpg' % (image_directory, postfix))
-    __write_images(image_outputs[n//2:n], display_image_num, '%s/gen_b2a_%s.jpg' % (image_directory, postfix))
+    __write_images(image_outputs[0:n//2], display_image_num, '%s\gen_a2b_%s.jpg' % (image_directory, postfix))
+    __write_images(image_outputs[n//2:n], display_image_num, '%s\gen_b2a_%s.jpg' % (image_directory, postfix))
 
 
 def prepare_sub_folder(output_directory):
@@ -269,9 +270,8 @@ class VggExtract(torch.nn.Module):
         super(VggExtract, self).__init__()
         self.vgg_layers = vgg_model.features
         self.layer_name_mapping = {
-            # '3': "relu1_2",
-            # '8': "relu2_2",
-            # '15': "relu3_3",
+            '8': "relu2_2",
+            '15': "relu3_3",
             '22': "relu4_3"
         }
 
@@ -409,3 +409,38 @@ def pytorch03_to_pytorch04(state_dict_base, trainer_name):
     state_dict['a'] = __conversion_core(state_dict_base['a'], trainer_name)
     state_dict['b'] = __conversion_core(state_dict_base['b'], trainer_name)
     return state_dict
+
+# Projection of x onto y
+def proj(x, y):
+  return torch.mm(y, x.t()) * y / torch.mm(y, y.t())
+
+# Orthogonalize x wrt list of vectors ys
+def gram_schmidt(x, ys):
+  for y in ys:
+    x = x - proj(x, y)
+  return x
+
+# Apply num_itrs steps of the power method to estimate top N singular values.
+def power_iteration(W, u_, update=True, eps=1e-12):
+  # Lists holding singular vectors and values
+  us, vs, svs = [], [], []
+  for i, u in enumerate(u_):
+    # Run one step of the power iteration
+    with torch.no_grad():
+      v = torch.matmul(u, W)
+      # Run Gram-Schmidt to subtract components of all other singular vectors
+      v = F.normalize(gram_schmidt(v, vs), eps=eps)
+      # Add to the list
+      vs += [v]
+      # Update the other singular vector
+      u = torch.matmul(v, W.t())
+      # Run Gram-Schmidt to subtract components of all other singular vectors
+      u = F.normalize(gram_schmidt(u, us), eps=eps)
+      # Add to the list
+      us += [u]
+      if update:
+        u_[i][:] = u
+    # Compute this singular value and add it to the list
+    svs += [torch.squeeze(torch.matmul(torch.matmul(v, W.t()), u.t()))]
+    #svs += [torch.sum(F.linear(u, W.transpose(0, 1)) * v)]
+  return svs, us, vs
