@@ -6,10 +6,13 @@ from torch import nn
 from torch.autograd import Variable
 import torch
 import torch.nn.functional as F
+import utils
+import functools
 try:
     from itertools import izip as zip
 except ImportError: # will be 3.x series
     pass
+from torch.nn import init
 
 ##################################################################################
 # Discriminator
@@ -244,10 +247,10 @@ class AdaINGanilla(nn.Module):
         use_dropout       = params['use_dropout']
         output_dim        = params['output_dim']
         # Ganilla Style Encoder
-        self.enc_style = GanillaStyleEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
-                                             use_dropout, norm = 'none', pad_type =pad_type)
+        # self.enc_style = GanillaStyleEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
+        #                                      use_dropout, norm = 'none', pad_type =pad_type)
         # style encoder
-        # self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
 
         # Ganilla Content Encoder
         self.enc_content = GanillaContentEncoder(input_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
@@ -258,6 +261,7 @@ class AdaINGanilla(nn.Module):
                     self.enc_content.layer3[ganilla_layer_nb[2] - 1].conv2.out_channels,
                     self.enc_content.layer4[ganilla_layer_nb[3] - 1].conv2.out_channels]
         self.dec = GanillaDecoder(output_dim, *sk_sizes, res_norm='adain', activ=activ, pad_type=pad_type)
+        #self.dec = GanillaDecoder2(n_res,output_dim, *sk_sizes, res_norm='adain', activ=activ, pad_type=pad_type)
 
         # MLP to generate AdaIN parameters
         self.mlp = MLP(style_dim, self.get_num_adain_params(self.dec), mlp_dim, 3, norm='none', activ=activ)
