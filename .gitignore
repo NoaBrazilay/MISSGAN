@@ -22,4 +22,5 @@ Ganilla/.idea/
 *.pt
 *.suo
 *.sqlite
+*.json
 
