@@ -83,7 +83,7 @@ class MUNIT_Trainer(nn.Module):
         self.train()
         return x_ab, x_ba
 
-    def gen_update(self, x_a, x_b, hyperparameters):
+    def gen_updateN(self, x_a, x_b, hyperparameters):
         self.gen_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -147,7 +147,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_gen_total.backward()
         self.gen_opt.step()
 
-    def gen_updateO(self, x_a, x_b, hyperparameters):
+    def gen_update(self, x_a, x_b, hyperparameters):
         self.gen_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -252,7 +252,7 @@ class MUNIT_Trainer(nn.Module):
         self.train()
         return x_a, x_a_recon, x_ab1, x_ab2, x_b, x_b_recon, x_ba1, x_ba2
 
-    def dis_update(self, x_a, x_b, hyperparameters):
+    def dis_updateN(self, x_a, x_b, hyperparameters):
         self.dis_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
@@ -269,7 +269,7 @@ class MUNIT_Trainer(nn.Module):
         self.loss_dis_total.backward()
         self.dis_opt.step()
 
-    def dis_updateO(self, x_a, x_b, hyperparameters):
+    def dis_update(self, x_a, x_b, hyperparameters):
         self.dis_opt.zero_grad()
         s_a = Variable(torch.randn(x_a.size(0), self.style_dim, 1, 1).cuda())
         s_b = Variable(torch.randn(x_b.size(0), self.style_dim, 1, 1).cuda())
