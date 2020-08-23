@@ -31,7 +31,9 @@ class Solver(nn.Module):
         self.args = args
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.nets, self.nets_ema = build_model(args)
+        self.nets, self.nets_ema, self.vgg, self.VggExtract = build_model(args)
+        self.instancenorm = nn.InstanceNorm2d(512, affine=False)
+        self.L1Loss = nn.L1Loss()
         # below setattrs are to make networks be children of Solver, e.g., for self.to(self.device)
         for name, module in self.nets.items():
             utils.print_network(module, name)
@@ -50,9 +52,9 @@ class Solver(nn.Module):
                     betas=[args.beta1, args.beta2],
                     weight_decay=args.weight_decay)
 
-            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '100000_nets.ckpt'), **self.nets),
-                CheckpointIO(ospj(args.checkpoint_dir, '100000_nets_ema.ckpt'), **self.nets_ema),
-                CheckpointIO(ospj(args.checkpoint_dir, '100000_optims.ckpt'), **self.optims)]
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, 'ganillaO_nets.ckpt'), **self.nets),
+                CheckpointIO(ospj(args.checkpoint_dir, 'ganillaO_nets_ema.ckpt'), **self.nets_ema),
+                CheckpointIO(ospj(args.checkpoint_dir, 'ganillaO_optims.ckpt'), **self.optims)]
         else:
             self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '100000_nets_ema.ckpt'), **self.nets_ema)]
 
@@ -119,7 +121,7 @@ class Solver(nn.Module):
 
             # train the generator
             g_loss, g_losses_latent = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
+                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks,VggExtract=self.VggExtract, IN = self.instancenorm, L1Loss=self.L1Loss)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
@@ -127,7 +129,7 @@ class Solver(nn.Module):
             optims.style_encoder.step()
 
             g_loss, g_losses_ref = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
+                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks, VggExtract=self.VggExtract, IN = self.instancenorm, L1Loss=self.L1Loss)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
@@ -183,9 +185,9 @@ class Solver(nn.Module):
         print('Working on {}...'.format(fname))
         utils.translate_using_reference(nets_ema, args, src.x, ref.x, ref.y, fname)
 
-        fname = ospj(args.result_dir, 'video_ref.mp4')
-        print('Working on {}...'.format(fname))
-        utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
+        # fname = ospj(args.result_dir, 'video_ref.mp4')
+        # print('Working on {}...'.format(fname))
+        # utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
 
     @torch.no_grad()
     def evaluate(self):
@@ -222,7 +224,7 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
                        reg=loss_reg.item())
 
 
-def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None):
+def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None,  VggExtract= None, IN= None, L1Loss=None):
     assert (z_trgs is None) != (x_refs is None)
     if z_trgs is not None:
         z_trg, z_trg2 = z_trgs
@@ -258,8 +260,10 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
     x_rec = nets.generator(x_fake, s_org, masks=masks)
     loss_cyc = torch.mean(torch.abs(x_rec - x_real))
 
+    loss_vgg = compute_vgg_loss(x_fake, x_real, VggExtract, IN, L1Loss) if args.vgg_w > 0 else 0
+
     loss = loss_adv + args.lambda_sty * loss_sty \
-        - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc
+        - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc + args.lambda_vgg * loss_vgg
     return loss, Munch(adv=loss_adv.item(),
                        sty=loss_sty.item(),
                        ds=loss_ds.item(),
@@ -277,6 +281,17 @@ def adv_loss(logits, target):
     loss = F.binary_cross_entropy_with_logits(logits, targets)
     return loss
 
+def compute_vgg_loss(img, target, VggExtract, IN, L1Loss):
+    # img_vgg = utils.vgg_preprocess(img)
+    # target_vgg =  utils.vgg_preprocess(target)
+    # img_fea = vgg(img_vgg)
+    # target_fea = vgg(target_vgg)
+    img_fea_dict = VggExtract(img)
+    target_fea_dict = VggExtract(target)
+    # loss = torch.mean((img_fea_dict['relu3_3'] - target_fea_dict['relu3_3']) ** 2)
+    # loss = torch.mean(torch.abs(img_fea_dict['relu3_3'] - target_fea_dict['relu3_3']))
+    loss = L1Loss(img_fea_dict['relu3_3'] , target_fea_dict['relu3_3'])
+    return loss
 
 def r1_reg(d_out, x_in):
     # zero-centered gradient penalty for real images

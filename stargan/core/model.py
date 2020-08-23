@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.wing import FAN
-
+from core.utils import load_vgg16
 
 class ResBlk(nn.Module):
     def __init__(self, dim_in, dim_out, actv=nn.LeakyReLU(0.2),
@@ -479,6 +479,23 @@ class Discriminator(nn.Module):
         out = out[idx, y]  # (batch)
         return out
 
+class VggExtract(torch.nn.Module):
+    def __init__(self, vgg_model):
+        super(VggExtract, self).__init__()
+        self.vgg_layers = vgg_model.features
+        self.layer_name_mapping = {
+            '8': "relu2_2",
+            '15': "relu3_3",
+            '22': "relu4_3"
+        }
+
+    def forward(self, x):
+        output = {}
+        for name, module in self.vgg_layers._modules.items():
+            x = module(x)
+            if name in self.layer_name_mapping:
+                output[self.layer_name_mapping[name]] = x
+        return output
 
 def build_model(args):
     #generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
@@ -503,4 +520,9 @@ def build_model(args):
         nets.fan = fan
         nets_ema.fan = fan
 
-    return nets, nets_ema
+    vgg = load_vgg16()
+    vgg.eval()
+    for param in vgg.parameters():
+        param.requires_grad = False
+
+    return nets, nets_ema, vgg, VggExtract(vgg)

@@ -61,8 +61,8 @@ def main(args):
                                             num_workers=args.num_workers))
         solver.train(loaders)
     elif args.mode == 'sample':
-        assert len(subdirs(args.src_dir)) == args.num_domains
-        assert len(subdirs(args.ref_dir)) == args.num_domains
+        # assert len(subdirs(args.src_dir)) == args.num_domains
+        # assert len(subdirs(args.ref_dir)) == args.num_domains
         loaders = Munch(src=get_test_loader(root=args.src_dir,
                                             img_size=args.img_size,
                                             batch_size=args.val_batch_size,
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     # training arguments
     parser.add_argument('--randcrop_prob', type=float, default=0.5,
                         help='Probabilty of using random-resized cropping')
-    parser.add_argument('--total_iters', type=int, default=100000,
+    parser.add_argument('--total_iters', type=int, default=900000,
                         help='Number of total iterations')
     parser.add_argument('--resume_iter', type=int, default=0,
                         help='Iterations to resume training/testing')
@@ -177,9 +177,13 @@ if __name__ == '__main__':
 
     # step size
     parser.add_argument('--print_every', type=int, default=10)
-    parser.add_argument('--sample_every', type=int, default=500)
+    parser.add_argument('--sample_every', type=int, default=1000)
     parser.add_argument('--save_every', type=int, default=1000)
-    parser.add_argument('--eval_every', type=int, default=5000)
+    parser.add_argument('--eval_every', type=int, default=10000)
 
+    parser.add_argument('--vgg_w', type=int, default=0,
+                        help='use vgg loss')
+    parser.add_argument('--lambda_vgg', type=float, default=1,
+                        help='Weight for vgg loss')
     args = parser.parse_args()
     main(args)

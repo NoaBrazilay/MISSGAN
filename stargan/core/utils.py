@@ -23,6 +23,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 import torchvision.utils as vutils
+import torchvision.models as models
+from torch.autograd import Variable
 
 
 def save_json(json_file, filename):
@@ -277,3 +279,20 @@ def save_video(fname, images, output_fps=30, vcodec='libx264', filters=''):
 def tensor2ndarray255(images):
     images = torch.clamp(images * 0.5 + 0.5, 0, 1)
     return images.cpu().numpy().transpose(0, 2, 3, 1) * 255
+
+def load_vgg16():
+    vgg16 = models.vgg16(pretrained=True)# relu4_3 layer
+    vgg16.cuda()
+    return vgg16
+
+def vgg_preprocess(batch):
+    tensortype = type(batch.data)
+    (r, g, b) = torch.chunk(batch, 3, dim = 1)
+    batch = torch.cat((b, g, r), dim = 1) # convert RGB to BGR
+    batch = (batch + 1) * 255 * 0.5 # [-1, 1] -> [0, 255]
+    mean = tensortype(batch.data.size()).cuda()
+    mean[:, 0, :, :] = 103.939
+    mean[:, 1, :, :] = 116.779
+    mean[:, 2, :, :] = 123.680
+    batch = batch.sub(Variable(mean)) # subtract mean
+    return batch
