@@ -156,7 +156,7 @@ class AdainResBlkGanilla(nn.Module):
 
     def forward(self, x, s):
         out = self._residual(x, s)
-        #out = (out + self._shortcut(x)) / math.sqrt(2)
+        out = (out + self._shortcut(x)) / math.sqrt(2)
         return out
 
 class HighPass(nn.Module):
