@@ -66,10 +66,10 @@ def translate_and_reconstruct(nets, args, x_src, y_src, x_ref, y_ref, filename):
     N, C, H, W = x_src.size()
     s_ref = nets.style_encoder(x_ref, y_ref)
     masks = nets.fan.get_heatmap(x_src) if args.w_hpf > 0 else None
-    x_fake = nets.generator(x_src, s_ref, masks=masks)
+    x_fake,_ = nets.generator(x_src, s_ref, masks=masks)
     s_src = nets.style_encoder(x_src, y_src)
     masks = nets.fan.get_heatmap(x_fake) if args.w_hpf > 0 else None
-    x_rec = nets.generator(x_fake, s_src, masks=masks)
+    x_rec,_ = nets.generator(x_fake, s_src, masks=masks)
     x_concat = [x_src, x_ref, x_fake, x_rec]
     x_concat = torch.cat(x_concat, dim=0)
     save_image(x_concat, N, filename)
@@ -93,7 +93,7 @@ def translate_using_latent(nets, args, x_src, y_trg_list, z_trg_list, psi, filen
         for z_trg in z_trg_list:
             s_trg = nets.mapping_network(z_trg, y_trg)
             s_trg = torch.lerp(s_avg, s_trg, psi)
-            x_fake = nets.generator(x_src, s_trg, masks=masks)
+            x_fake,_ = nets.generator(x_src, s_trg, masks=masks)
             x_concat += [x_fake]
 
     x_concat = torch.cat(x_concat, dim=0)
@@ -111,7 +111,7 @@ def translate_using_reference(nets, args, x_src, x_ref, y_ref, filename):
     s_ref_list = s_ref.unsqueeze(1).repeat(1, N, 1)
     x_concat = [x_src_with_wb]
     for i, s_ref in enumerate(s_ref_list):
-        x_fake = nets.generator(x_src, s_ref, masks=masks)
+        x_fake,_ = nets.generator(x_src, s_ref, masks=masks)
         x_fake_with_ref = torch.cat([x_ref[i:i+1], x_fake], dim=0)
         x_concat += [x_fake_with_ref]
 
@@ -167,7 +167,7 @@ def interpolate(nets, args, x_src, s_prev, s_next):
 
     for alpha in alphas:
         s_ref = torch.lerp(s_prev, s_next, alpha)
-        x_fake = nets.generator(x_src, s_ref, masks=masks)
+        x_fake,_ = nets.generator(x_src, s_ref, masks=masks)
         entries = torch.cat([x_src.cpu(), x_fake.cpu()], dim=2)
         frame = torchvision.utils.make_grid(entries, nrow=B, padding=0, pad_value=-1).unsqueeze(0)
         frames.append(frame)
@@ -296,3 +296,7 @@ def vgg_preprocess(batch):
     mean[:, 2, :, :] = 123.680
     batch = batch.sub(Variable(mean)) # subtract mean
     return batch
+
+
+def abs_criterion(in_, target):
+    return torch.mean(torch.abs(in_ - target))

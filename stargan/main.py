@@ -179,11 +179,16 @@ if __name__ == '__main__':
     parser.add_argument('--print_every', type=int, default=10)
     parser.add_argument('--sample_every', type=int, default=1000)
     parser.add_argument('--save_every', type=int, default=1000)
-    parser.add_argument('--eval_every', type=int, default=10000)
+    parser.add_argument('--eval_every', type=int, default=100000)
 
     parser.add_argument('--vgg_w', type=int, default=0,
                         help='use vgg loss')
     parser.add_argument('--lambda_vgg', type=float, default=1,
                         help='Weight for vgg loss')
+    parser.add_argument('--loss_sacl', type=int, default=0,
+                        help='use style aware content loss')
+    parser.add_argument('--lambda_loss_sacl', type=float, default=1,
+                        help='Weight for style aware content loss')
+
     args = parser.parse_args()
     main(args)

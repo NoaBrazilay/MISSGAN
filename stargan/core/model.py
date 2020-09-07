@@ -222,7 +222,7 @@ class Generator(nn.Module):
                 mask = masks[0] if x.size(2) in [32] else masks[1]
                 mask = F.interpolate(mask, size=x.size(2), mode='bilinear')
                 x = x + self.hpf(mask * cache[x.size(2)])
-        return self.to_rgb(x)
+        return self.to_rgb(x), self.to_rgb(x)
 
 
 class BasicBlock_Ganilla(nn.Module):
@@ -330,15 +330,16 @@ class GeneratorGanilla(nn.Module):
         self.inplanes = ngf
 
         # first conv
-        self.pad1 = nn.ReflectionPad2d(input_nc)
+        self.pad1 = nn.ReflectionPad2d(3)
         self.conv1 = nn.Conv2d(input_nc, ngf, kernel_size=7, stride=1, padding=0, bias=True)
         self.in1 = nn.InstanceNorm2d(ngf)
         self.relu = nn.ReLU(inplace=True)
         self.pad2 = nn.ReflectionPad2d(1)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=0)
+        self.avgpool = nn.AvgPool2d(kernel_size=3, stride=2, padding=0)
 
         # Output layer
-        self.pad3 = nn.ReflectionPad2d(output_nc)
+        self.pad3 = nn.ReflectionPad2d(3)
         self.conv2 = nn.Conv2d(64, output_nc, 7)
         self.tanh = nn.Tanh()
 
@@ -385,7 +386,7 @@ class GeneratorGanilla(nn.Module):
         out = self.conv2(out)
         out = self.tanh(out)
 
-        return out
+        return out, x4
 
 class MappingNetwork(nn.Module):
     def __init__(self, latent_dim=16, style_dim=64, num_domains=2):
@@ -498,7 +499,7 @@ class VggExtract(torch.nn.Module):
         return output
 
 def build_model(args):
-    #generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
+    # generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
     generator = GeneratorGanilla(img_size=args.img_size, style_dim=args.style_dim)
     mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains)
     style_encoder = StyleEncoder(args.img_size, args.style_dim, args.num_domains)

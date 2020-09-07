@@ -52,9 +52,9 @@ class Solver(nn.Module):
                     betas=[args.beta1, args.beta2],
                     weight_decay=args.weight_decay)
 
-            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, 'ganillaO_nets.ckpt'), **self.nets),
-                CheckpointIO(ospj(args.checkpoint_dir, 'ganillaO_nets_ema.ckpt'), **self.nets_ema),
-                CheckpointIO(ospj(args.checkpoint_dir, 'ganillaO_optims.ckpt'), **self.optims)]
+            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '100000_nets.ckpt'), **self.nets),
+                CheckpointIO(ospj(args.checkpoint_dir, '100000_nets_ema.ckpt'), **self.nets_ema),
+                CheckpointIO(ospj(args.checkpoint_dir, '100000_optims.ckpt'), **self.optims)]
         else:
             self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '100000_nets_ema.ckpt'), **self.nets_ema)]
 
@@ -214,7 +214,7 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
         else:  # x_ref is not None
             s_trg = nets.style_encoder(x_ref, y_trg)
 
-        x_fake = nets.generator(x_real, s_trg, masks=masks)
+        x_fake,_ = nets.generator(x_real, s_trg, masks=masks)
     out = nets.discriminator(x_fake, y_trg)
     loss_fake = adv_loss(out, 0)
 
@@ -237,7 +237,7 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
     else:
         s_trg = nets.style_encoder(x_ref, y_trg)
 
-    x_fake = nets.generator(x_real, s_trg, masks=masks)
+    x_fake, content_latent_real = nets.generator(x_real, s_trg, masks=masks)
     out = nets.discriminator(x_fake, y_trg)
     loss_adv = adv_loss(out, 1)
 
@@ -250,20 +250,22 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
         s_trg2 = nets.mapping_network(z_trg2, y_trg)
     else:
         s_trg2 = nets.style_encoder(x_ref2, y_trg)
-    x_fake2 = nets.generator(x_real, s_trg2, masks=masks)
+    x_fake2, content_latent_real2 = nets.generator(x_real, s_trg2, masks=masks)
     x_fake2 = x_fake2.detach()
     loss_ds = torch.mean(torch.abs(x_fake - x_fake2))
 
     # cycle-consistency loss
     masks = nets.fan.get_heatmap(x_fake) if args.w_hpf > 0 else None
     s_org = nets.style_encoder(x_real, y_org)
-    x_rec = nets.generator(x_fake, s_org, masks=masks)
+    x_rec, content_latent_reco = nets.generator(x_fake, s_org, masks=masks)
     loss_cyc = torch.mean(torch.abs(x_rec - x_real))
 
     loss_vgg = compute_vgg_loss(x_fake, x_real, VggExtract, IN, L1Loss) if args.vgg_w > 0 else 0
+    loss_sacl = utils.abs_criterion(content_latent_real,  content_latent_reco) if args.loss_sacl > 0 else 0 # Loss style aware content loss
+    loss_sacl2 = utils.abs_criterion(content_latent_real2,  content_latent_reco) if args.loss_sacl > 0 else 0 # Loss style aware content loss
 
     loss = loss_adv + args.lambda_sty * loss_sty \
-        - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc + args.lambda_vgg * loss_vgg
+        - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc + args.lambda_vgg * loss_vgg + args.lambda_loss_sacl * loss_sacl+ args.lambda_loss_sacl * loss_sacl2
     return loss, Munch(adv=loss_adv.item(),
                        sty=loss_sty.item(),
                        ds=loss_ds.item(),
@@ -290,7 +292,7 @@ def compute_vgg_loss(img, target, VggExtract, IN, L1Loss):
     target_fea_dict = VggExtract(target)
     # loss = torch.mean((img_fea_dict['relu3_3'] - target_fea_dict['relu3_3']) ** 2)
     # loss = torch.mean(torch.abs(img_fea_dict['relu3_3'] - target_fea_dict['relu3_3']))
-    loss = L1Loss(img_fea_dict['relu3_3'] , target_fea_dict['relu3_3'])
+    loss = L1Loss(img_fea_dict['relu2_2'] , target_fea_dict['relu2_2'])
     return loss
 
 def r1_reg(d_out, x_in):
