@@ -30,3 +30,5 @@ stargan/.idea/
 MUNIT/datasets/demo_edges2handbags/list_trainA.txt
 
 MUNIT/datasets/demo_edges2handbags/list_trainB.txt
+
+MUNIT/datasets/demo_edges2handbags/list_testA.txt
