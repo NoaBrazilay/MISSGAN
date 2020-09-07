@@ -1,2 +1,43 @@
 bash ./datasets/download_cyclegan_dataset.sh ukiyoe2photo
 --config configs/illustrations2landscapes_folder.yaml --input inputs/land2illu_1.jpg --output_folder results/illustrations2landscapes --checkpoint models/landscapes2illustrations.pt --a2b 0 --style inputs/StyleMB3.png
+
+
+# celeba-hq
+python main.py --mode train --num_domains 2 --w_hpf 1 \
+               --lambda_reg 1 --lambda_sty 1 --lambda_ds 1 --lambda_cyc 1 \
+               --train_img_dir data/celeba_hq/train \
+               --val_img_dir data/celeba_hq/val
+			   
+
+python main.py 
+--mode train --num_domains 2 --w_hpf 0 --lambda_reg 1 --lambda_sty 1 --lambda_ds 1 --lambda_cyc 1 --train_img_dir data\illustrations\train --val_img_dir data\illustrations\val --vgg_w
+--mode train --num_domains 3 --w_hpf 0 --lambda_reg 1 --lambda_sty 1 --lambda_ds 2 --lambda_cyc 1 --train_img_dir data\illustrations\train --val_img_dir data\illustrations\val
+
+--mode sample --num_domains 2 --resume_iter 136000 --w_hpf 0 --checkpoint_dir exprGanilla_AdainNoResidualinup\checkpoints\ --result_dir exprGanilla_AdainNoResidualinup\results\ --src_dir assets\representative\illustrations\src --ref_dir assets\representative\illustrations\ref
+--mode sample --num_domains 2 --resume_iter 136000 --w_hpf 0 --checkpoint_dir exprGanilla_AdainNoResidualinup_VGGContentLoss\checkpoints\ --result_dir exprGanilla_AdainNoResidualinup_VGGContentLoss\results\ --src_dir assets\representative\illustrations\src --ref_dir assets\representative\illustrations\ref
+--mode sample --num_domains 2 --resume_iter 136000 --w_hpf 0 --checkpoint_dir exprOriginalbatch1lr1e-5\checkpoints\ --result_dir exprOriginalbatch1lr1e-5\results\ --src_dir assets\representative\illustrations\src --ref_dir assets\representative\illustrations\ref
+--mode sample --num_domains 2 --resume_iter 136000 --w_hpf 0 --checkpoint_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss\checkpoints\ --result_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss\results\ --src_dir assets\representative\illustrations\src --ref_dir assets\representative\illustrations\ref
+--mode sample --num_domains 2 --resume_iter 136000 --w_hpf 0 --checkpoint_dir exprGanilla_AdainResBlocksinUp_SACL\checkpoints\ --result_dir exprGanilla_AdainResBlocksinUp_SACL\results\ --src_dir assets\representative\illustrations\src --ref_dir assets\representative\illustrations\ref
+
+--mode sample --num_domains 2 --resume_iter 136000 --w_hpf 0 --checkpoint_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss_relu22\checkpoints\ --result_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss_relu22\results\ --src_dir assets\representative\illustrations\src --ref_dir assets\representative\illustrations\ref
+--mode sample --num_domains 2 --resume_iter 136000 --w_hpf 0 --checkpoint_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss_SACL\checkpoints\ --result_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss_SACL\results\ --src_dir assets\representative\illustrations\src --ref_dir assets\representative\illustrations\ref
+
+
+exprGanilla_AdainResBlocksinUp_VGGContentLoss_SACL
+
+
+--mode eval --num_domains 2 --w_hpf 0 --resume_iter 290000 --train_img_dir data\illustrations\train --val_img_dir data\illustrations\val --checkpoint_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss_relu22\checkpoints\ --eval_dir exprGanilla_AdainResBlocksinUp_VGGContentLoss_relu22\eval
+
+
+train with Vgg:
+--mode train --num_domains 2 --w_hpf 0 --lambda_reg 1 --lambda_sty 1 --lambda_ds 1 --lambda_cyc 1 --train_img_dir data\illustrations\train --val_img_dir data\illustrations\val --vgg_w 1
+train with style aware content loss: 
+--mode train --num_domains 2 --w_hpf 0 --lambda_reg 1 --lambda_sty 1 --lambda_ds 1 --lambda_cyc 1 --train_img_dir data\illustrations\train --val_img_dir data\illustrations\val --loss_sacl 1
+both:
+--mode train --num_domains 2 --w_hpf 0 --lambda_reg 1 --lambda_sty 1 --lambda_ds 1 --lambda_cyc 1 --train_img_dir data\illustrations\train --val_img_dir data\illustrations\val --loss_sacl 1 --vgg_w 1
+
+
+
+
+
+
