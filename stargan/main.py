@@ -190,5 +190,7 @@ if __name__ == '__main__':
     parser.add_argument('--lambda_loss_sacl', type=float, default=1,
                         help='Weight for style aware content loss')
 
+    parser.add_argument('--use_star_gen', type=int, default=0,
+                        help='use stargan original generator')
     args = parser.parse_args()
     main(args)

@@ -499,8 +499,10 @@ class VggExtract(torch.nn.Module):
         return output
 
 def build_model(args):
-    # generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
-    generator = GeneratorGanilla(img_size=args.img_size, style_dim=args.style_dim)
+    if args.use_star_gen:
+        generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
+    else:
+        generator = GeneratorGanilla(img_size=args.img_size, style_dim=args.style_dim)
     mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains)
     style_encoder = StyleEncoder(args.img_size, args.style_dim, args.num_domains)
     discriminator = Discriminator(args.img_size, args.num_domains)
