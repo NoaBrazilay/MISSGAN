@@ -246,11 +246,13 @@ class AdaINGanilla(nn.Module):
         ganilla_layer_nb  = params['ganilla_layer_nb']
         use_dropout       = params['use_dropout']
         output_dim        = params['output_dim']
+        use_style_enc_simple    = params['use_style_enc_simple']
         # Ganilla Style Encoder
-        # self.enc_style = GanillaStyleEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
-        #                                      use_dropout, norm = 'none', pad_type =pad_type)
-        # style encoder
-        self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        if use_style_enc_simple:
+            self.enc_style = StyleEncoder(4, input_dim, dim, style_dim, norm='none', activ=activ, pad_type=pad_type)
+        else:
+            self.enc_style = GanillaStyleEncoder(input_dim, style_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,
+                                                 use_dropout, norm = 'none', pad_type =pad_type)
 
         # Ganilla Content Encoder
         self.enc_content = GanillaContentEncoder(input_dim, ganilla_ngf, ganilla_block_nf, ganilla_layer_nb,

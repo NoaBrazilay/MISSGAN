@@ -23,12 +23,14 @@ class MUNIT_Trainer(nn.Module):
             self.gen_b = AdaINGanilla(hyperparameters['input_dim_b'], hyperparameters['gen'])  # auto-encoder for domain b with ganilla architecture
             print(self.gen_a)
         if hyperparameters['dis']['dis_type'] == 'patch':
-            self.dis_a = PatchDis(hyperparameters['input_dim_a'], hyperparameters['dis'])
-            self.dis_b = PatchDis(hyperparameters['input_dim_b'], hyperparameters['dis'])
-            # self.dis_a = MsImageDis(hyperparameters['input_dim_a'],
-            #                         hyperparameters['dis'])  # discriminator for domain a
-            # self.dis_b = MsImageDis(hyperparameters['input_dim_b'],
-            #                         hyperparameters['dis'])  # discriminator for domain b
+            if hyperparameters['dis']['use_patch_gan']:
+                self.dis_a = PatchDis(hyperparameters['input_dim_a'], hyperparameters['dis'])
+                self.dis_b = PatchDis(hyperparameters['input_dim_b'], hyperparameters['dis'])
+            else:
+                self.dis_a = MsImageDis(hyperparameters['input_dim_a'],
+                                        hyperparameters['dis'])  # discriminator for domain a
+                self.dis_b = MsImageDis(hyperparameters['input_dim_b'],
+                                        hyperparameters['dis'])  # discriminator for domain b
             print(self.dis_a)
         else:
             self.dis_a = MsImageDis(hyperparameters['input_dim_a'], hyperparameters['dis'])  # discriminator for domain a

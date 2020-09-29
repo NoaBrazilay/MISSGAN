@@ -192,5 +192,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--use_star_gen', type=int, default=0,
                         help='use stargan original generator')
+    parser.add_argument('--use_residual_upsample', type=int, default=1,
+                        help='use stargan original generator')
+
     args = parser.parse_args()
     main(args)

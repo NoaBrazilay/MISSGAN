@@ -120,14 +120,14 @@ class AdainResBlk(nn.Module):
         return out
 
 class AdainResBlkGanilla(nn.Module):
-    def __init__(self, dim_in, dim_out, style_dim=64, actv=nn.LeakyReLU(0.2), upsample=True):
+    def __init__(self, dim_in, dim_out, style_dim=64, actv=nn.LeakyReLU(0.2), upsample=True, do_residual=True):
         super().__init__()
 
         self.actv = actv
         self.upsample = upsample
         self.learned_sc = dim_in != dim_out
         self._build_weights(dim_in, dim_out, style_dim)
-
+        self.do_residual = do_residual
     def _build_weights(self, dim_in, dim_out, style_dim=64):
         self.conv1 = nn.Conv2d(dim_in, dim_out, 3, 1, 1)
         self.conv2 = nn.Conv2d(dim_out, dim_out, 3, 1, 1)
@@ -156,7 +156,8 @@ class AdainResBlkGanilla(nn.Module):
 
     def forward(self, x, s):
         out = self._residual(x, s)
-        out = (out + self._shortcut(x)) / math.sqrt(2)
+        if self.do_residual:
+            out = (out + self._shortcut(x)) / math.sqrt(2)
         return out
 
 class HighPass(nn.Module):
@@ -273,22 +274,22 @@ class BasicBlock_Ganilla(nn.Module):
         return out
 
 class PyramidFeatures(nn.Module):
-    def __init__(self, C2_size, C3_size, C4_size, C5_size, fpn_weights =[1.0, 1.0, 1.0, 1.0], feature_size=128, style_dim=64):
+    def __init__(self, C2_size, C3_size, C4_size, C5_size, fpn_weights =[1.0, 1.0, 1.0, 1.0], feature_size=128, style_dim=64, do_residual=True):
         super().__init__()
 
         self.sum_weights = fpn_weights #[1.0, 0.5, 0.5, 0.5]
 
         # upsample C5 to get P5 from the FPN paper
         self.P5_1 = nn.Conv2d(C5_size, feature_size, kernel_size=1, stride=1, padding=0)
-        self.P5_2 = AdainResBlkGanilla(C5_size, feature_size, style_dim)
+        self.P5_2 = AdainResBlkGanilla(C5_size, feature_size, style_dim, do_residual=do_residual)
 
         # add P5 elementwise to C4
         self.P4_1 = nn.Conv2d(C4_size, feature_size, kernel_size=1, stride=1, padding=0)
-        self.P4_2 = AdainResBlkGanilla(feature_size, feature_size, style_dim)
+        self.P4_2 = AdainResBlkGanilla(feature_size, feature_size, style_dim, do_residual=do_residual)
 
         # add P4 elementwise to C3
         self.P3_1 = nn.Conv2d(C3_size, feature_size, kernel_size=1, stride=1, padding=0)
-        self.P3_2 = AdainResBlkGanilla(feature_size, feature_size, style_dim)
+        self.P3_2 = AdainResBlkGanilla(feature_size, feature_size, style_dim, do_residual=do_residual)
 
         self.P2_1 = nn.Conv2d(C2_size, feature_size, kernel_size=1, stride=1, padding=0)
         self.P2_upsampled = nn.Upsample(scale_factor=2, mode='nearest')
@@ -323,7 +324,7 @@ class PyramidFeatures(nn.Module):
 
 class GeneratorGanilla(nn.Module):
 
-    def __init__(self, img_size=256,  style_dim=64, input_nc=3, output_nc=3, ngf=64, ganilla_layer_nb=[2, 2, 2, 2], use_dropout=True, masks=None):
+    def __init__(self, img_size=256,  style_dim=64, input_nc=3, output_nc=3, ngf=64, ganilla_layer_nb=[2, 2, 2, 2], use_dropout=True, masks=None, do_residual=True):
         super().__init__()
 
         ganilla_block_nf = [64, 128, 128, img_size]
@@ -354,7 +355,7 @@ class GeneratorGanilla(nn.Module):
                      self.layer3[ganilla_layer_nb[2] - 1].conv2.out_channels,
                      self.layer4[ganilla_layer_nb[3] - 1].conv2.out_channels]
 
-        self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2], fpn_sizes[3], style_dim=style_dim)
+        self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2], fpn_sizes[3], style_dim=style_dim, do_residual=do_residual)
 
     def _make_layer_ganilla(self, block, planes, blocks, use_dropout, stride=1):
         strides = [stride] + [1] * (blocks - 1)
@@ -502,7 +503,11 @@ def build_model(args):
     if args.use_star_gen:
         generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
     else:
-        generator = GeneratorGanilla(img_size=args.img_size, style_dim=args.style_dim)
+        if args.use_residual_upsample:
+            generator = GeneratorGanilla(img_size=args.img_size, style_dim=args.style_dim, do_residual=True)
+        else:
+            generator = GeneratorGanilla(img_size=args.img_size, style_dim=args.style_dim, do_residual=False)
+
     mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains)
     style_encoder = StyleEncoder(args.img_size, args.style_dim, args.num_domains)
     discriminator = Discriminator(args.img_size, args.num_domains)
