@@ -1,4 +1,4 @@
-# Deep Learning Project - MISS GAN
+# MISS GAN: A Multi-IlluStrator Style Generative Adversarial Network for image to illustration translation
 
 Note: The code was run in windows with GTX 1070.
 
