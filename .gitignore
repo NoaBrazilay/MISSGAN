@@ -10,7 +10,7 @@ MUNIT/notebooks/.ipynb_checkpoints/*
 MUNIT/exps/
 MUNIT/src/yaml_generator.py
 Ganilla/.idea/
-stargan/.idea/
+MISSGANvsStarGAN/.idea/
 *.tar.gz
 *ipynb
 *.zip
