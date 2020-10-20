@@ -24,3 +24,5 @@ Note that this study contains code from the following repositories as well:
 [https://github.com/NVlabs/MUNIT](MUNIT)
 
 [https://github.com/giddyyupp/ganilla](GANILLA)
+
+Copyright (c) 2020 NoaBarzilay
